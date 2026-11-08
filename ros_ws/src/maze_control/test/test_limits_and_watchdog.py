@@ -81,6 +81,20 @@ def test_recovers_when_states_resume(pid_params):
     assert ctrl.status == 'tracking'
 
 
+def test_republished_path_keeps_progress(pid_params):
+    ctrl = MazeController.from_params(pid_params)
+    path = [[0.0, 0.0], [0.3, 0.0]]
+    assert ctrl.on_path(path)
+    ctrl.on_state(0.0, (0.1, 0.0), (0.0, 0.0))
+    ctrl.update(0.0)
+    s = ctrl.tracker.progress
+    assert s == pytest.approx(0.1)
+    assert not ctrl.on_path(list(path))        # same path again: ignored
+    assert ctrl.tracker.progress == s
+    assert ctrl.on_path([[0.0, 0.0], [0.0, 0.3]])   # new path: restart
+    assert ctrl.tracker.progress == 0.0
+
+
 def test_no_path_outputs_zero(pid_params):
     ctrl = MazeController.from_params(pid_params)
     ctrl.on_state(0.0, (0.1, 0.1), (0.0, 0.0))

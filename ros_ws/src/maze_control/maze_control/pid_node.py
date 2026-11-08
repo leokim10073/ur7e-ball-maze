@@ -5,6 +5,7 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Vector3Stamped
 from nav_msgs.msg import Odometry, Path
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from .config import unflatten
@@ -43,9 +44,9 @@ class PidNode(Node):
     def on_path(self, msg):
         pts = np.array([(ps.pose.position.x, ps.pose.position.y)
                         for ps in msg.poses])
-        self.ctrl.on_path(pts)
-        self.get_logger().info(f'new path: {len(pts)} points, '
-                               f'{self.ctrl.tracker.length:.3f} m')
+        if self.ctrl.on_path(pts):
+            self.get_logger().info(f'new path: {len(pts)} points, '
+                                   f'{self.ctrl.tracker.length:.3f} m')
 
     def on_timer(self):
         theta = self.ctrl.update(self.now_s())
@@ -64,7 +65,7 @@ def main(args=None):
     node = PidNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

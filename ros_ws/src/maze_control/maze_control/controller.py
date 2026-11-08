@@ -25,6 +25,7 @@ class MazeController:
         self.t_last = None
         self.target = None
         self.status = 'no_state'
+        self._raw_path = None
 
     @classmethod
     def from_params(cls, p):
@@ -46,8 +47,17 @@ class MazeController:
                    state_timeout=p['watchdog']['state_timeout'])
 
     def on_path(self, points):
-        self.tracker.set_path(points)
+        """Load a path. Returns False if it equals the current one (a
+        republished path must not reset the progress along it)."""
+        pts = np.asarray(points, float).reshape(-1, 2)
+        old = self._raw_path
+        if old is not None and pts.shape == old.shape \
+                and np.allclose(pts, old, atol=1e-6):
+            return False
+        self._raw_path = pts
+        self.tracker.set_path(pts)
         self.pid.reset()
+        return True
 
     def on_state(self, t, pos, vel):
         self.pos = np.asarray(pos, float)
