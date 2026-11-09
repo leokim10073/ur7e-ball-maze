@@ -1,4 +1,4 @@
-"""ROS 2 wrapper around MazeController. All logic lives in the core modules;
+"""ROS 2 wrapper around PidPathController. All logic lives in the core modules;
 all parameters come from config/pid.yaml (passed in by the launch file)."""
 
 import numpy as np
@@ -8,8 +8,8 @@ from nav_msgs.msg import Odometry, Path
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
-from .config import unflatten
-from .controller import MazeController
+from ..common.config import unflatten
+from .controller import PidPathController
 
 
 class PidNode(Node):
@@ -20,7 +20,7 @@ class PidNode(Node):
                 self.get_parameters_by_prefix('').items()}
         params = unflatten(flat)
         try:
-            self.ctrl = MazeController.from_params(params)
+            self.ctrl = PidPathController.from_params(params)
         except KeyError as e:
             raise RuntimeError(f'missing parameter {e}; launch with config/pid.yaml')
         topics = params['topics']

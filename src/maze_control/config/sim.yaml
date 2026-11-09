@@ -1,4 +1,4 @@
-# Offline simulator (maze_control.ball_sim) used by the tests and plots.
+# Offline simulator (maze_control.common.ball_sim) used by the tests and plots.
 # Ball: 14 mm solid steel sphere, rolling without slipping -> a = (5/7) g sin(theta).
 ball_sim:
   ros__parameters:

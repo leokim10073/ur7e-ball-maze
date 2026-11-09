@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'pid_node = maze_control.pid_node:main',
+            'pid_node = maze_control.pid.node:main',
         ],
     },
 )

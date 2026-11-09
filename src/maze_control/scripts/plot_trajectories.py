@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run every scenario in the offline sim and plot it (no ROS needed).
 
-    python3 scripts/plot_trajectories.py [-o figures/pid_trajectories.png]
+    python3 scripts/plot_trajectories.py [-o out.png]   # default: docs/media/pid_trajectories.png
 """
 
 import argparse
@@ -16,10 +16,10 @@ import numpy as np  # noqa: E402
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PKG)
 
-from maze_control.ball_sim import BallSim, run_closed_loop  # noqa: E402
-from maze_control.config import load_params  # noqa: E402
-from maze_control.controller import MazeController  # noqa: E402
-from maze_control.scenarios import SCENARIOS  # noqa: E402
+from maze_control.common.ball_sim import BallSim, run_closed_loop  # noqa: E402
+from maze_control.common.config import load_params  # noqa: E402
+from maze_control.pid.controller import PidPathController  # noqa: E402
+from maze_control.common.scenarios import SCENARIOS  # noqa: E402
 
 BLUE, ORANGE = '#2a78d6', '#eb6834'
 INK, INK2, GRID, PATH = '#0b0b0b', '#52514e', '#e4e3df', '#9a9893'
@@ -30,7 +30,8 @@ TITLES = {'point': '1. Single point', 'line': '2. Straight line',
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-o', '--out',
-                    default=os.path.join(PKG, 'figures', 'pid_trajectories.png'))
+                    default=os.path.join(PKG, '..', '..', 'docs', 'media',
+                                         'pid_trajectories.png'))
     args = ap.parse_args()
 
     P, SP = load_params('pid.yaml'), load_params('sim.yaml')
@@ -45,7 +46,7 @@ def main():
                              gridspec_kw={'height_ratios': [2.2, 1, 1]})
 
     for col, (name, (path, p0, T)) in enumerate(SCENARIOS.items()):
-        ctrl = MazeController.from_params(P)
+        ctrl = PidPathController.from_params(P)
         sim = BallSim.from_params(SP, pos0=p0)
         log = run_closed_loop(ctrl, sim, path, T)
         t, pos, cmd = log['t'], log['pos'], np.degrees(log['cmd'])
@@ -108,7 +109,7 @@ def main():
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     fig.savefig(args.out, dpi=130, facecolor='white')
-    print(f'wrote {args.out}')
+    print(f'wrote {os.path.normpath(args.out)}')
 
 
 if __name__ == '__main__':

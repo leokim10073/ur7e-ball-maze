@@ -9,11 +9,11 @@ import math
 
 import numpy as np
 
-from .path_tracker import PathTracker
-from .pid_controller import PIDController
+from ..common.path_tracker import PathTracker
+from .pid_law import PIDController
 
 
-class MazeController:
+class PidPathController:
     def __init__(self, tracker, pid, rate_hz=60.0, state_timeout=0.2):
         self.tracker = tracker
         self.pid = pid

@@ -9,7 +9,7 @@ maze_pid_controller:
       state: /ball/state          # nav_msgs/Odometry: pose.position.x/y, twist.linear.x/y
       path: /maze/path            # nav_msgs/Path, board frame
       tilt_cmd: /board/tilt_cmd   # geometry_msgs/Vector3Stamped, x=theta_x, y=theta_y [rad]
-    frame_id: board
+    frame_id: maze_board         # same board frame as perception and the sim
 
     # Sign of the ball acceleration produced by a positive board angle.
     #   theta_y > 0 -> ball accelerates towards +x  =>  theta_y_to_ax: +1

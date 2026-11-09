@@ -4,7 +4,8 @@ import os
 
 import yaml
 
-PKG_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Source tree only: <pkg>/maze_control/common/config.py -> <pkg>/config
+PKG_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_DIR = os.path.join(PKG_DIR, 'config')
 
 
