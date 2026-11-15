@@ -1,13 +1,10 @@
 """PID tests 4-5: tilt / rate limits and tracking-loss watchdog (no ROS)."""
 
-import math
-
 import numpy as np
 import pytest
 
 from maze_control.pid.controller import PidPathController
 
-DEG = math.pi / 180.0
 EPS = 1e-9
 
 
@@ -24,10 +21,10 @@ def test_limits_in_closed_loop(run, pid_params, name):
     log, _ = run(name)
     lim = pid_params['limits']
     check_limits(log['cmd'], 1.0 / pid_params['rate_hz'],
-                 lim['max_tilt_deg'] * DEG, lim['max_rate_deg_s'] * DEG)
+                 lim['max_tilt'], lim['max_rate'])
     # The tight cases actually hit the tilt limit, so it is exercised.
     if name == 'point':
-        assert np.isclose(np.abs(log['cmd']).max(), lim['max_tilt_deg'] * DEG)
+        assert np.isclose(np.abs(log['cmd']).max(), lim['max_tilt'])
 
 
 def test_limits_under_random_states(pid_params):
@@ -44,8 +41,7 @@ def test_limits_under_random_states(pid_params):
         if rng.random() > 0.05:     # occasional missing states
             ctrl.on_state(t, rng.uniform(-0.3, 0.3, 2), rng.uniform(-2, 2, 2))
         cmds.append(ctrl.update(t))
-    check_limits(cmds, dt, lim['max_tilt_deg'] * DEG,
-                 lim['max_rate_deg_s'] * DEG)
+    check_limits(cmds, dt, lim['max_tilt'], lim['max_rate'])
 
 
 # ------------------------------------------------------- 5. tracking loss
@@ -55,10 +51,10 @@ def test_tracking_loss_returns_to_zero(run, pid_params):
     t, cmd = log['t'], log['cmd']
     timeout = pid_params['watchdog']['state_timeout']
     lim = pid_params['limits']
-    ramp = lim['max_tilt_deg'] / lim['max_rate_deg_s']   # worst-case ramp time
+    ramp = lim['max_tilt'] / lim['max_rate']   # worst-case ramp time
 
     before = (t > lost_at - 0.2) & (t <= lost_at + timeout)
-    assert np.abs(cmd[before]).max() > 0.5 * DEG, 'should still be tilting'
+    assert np.abs(cmd[before]).max() > np.radians(0.5), 'should still be tilting'
     assert all(s != 'timeout' for s in log['status'][t <= lost_at + timeout])
     assert all(s == 'timeout' for s in log['status'][t > lost_at + timeout + 1e-9])
 

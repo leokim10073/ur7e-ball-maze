@@ -1,26 +1,23 @@
-# PID ball controller. Every gain, limit, topic and sign lives here.
-# Board frame: origin at the maze centre, x right, y up (seen from the
-# overhead camera). Lengths in m, angles in deg unless noted.
+# PID ball controller. Every gain, limit and topic lives here.
+# Board frame maze_board (docs/interfaces.md): origin at the plate centre, z up,
+# handle on the -x edge. SI units: m, m/s, rad, rad/s, s.
 maze_pid_controller:
   ros__parameters:
     rate_hz: 60.0
 
     topics:
-      state: /ball/state          # nav_msgs/Odometry: pose.position.x/y, twist.linear.x/y
-      path: /maze/path            # nav_msgs/Path, board frame
-      tilt_cmd: /board/tilt_cmd   # geometry_msgs/Vector3Stamped, x=theta_x, y=theta_y [rad]
+      state: /ball/state          # maze_interfaces/BallState (contract 2)
+      path: /maze/path            # nav_msgs/Path, maze_board (contract 3)
+      tilt_cmd: /board/tilt_cmd   # maze_interfaces/BoardTilt (contract 4)
     frame_id: maze_board         # same board frame as perception and the sim
 
-    # Sign of the ball acceleration produced by a positive board angle.
-    #   theta_y > 0 -> ball accelerates towards +x  =>  theta_y_to_ax: +1
-    #   theta_x > 0 -> ball accelerates towards -y  =>  theta_x_to_ay: -1
-    sign:
-      theta_y_to_ax: 1.0
-      theta_x_to_ay: -1.0
+    # Output: BoardTilt tilt_x / tilt_y, defined by the effect on the ball
+    # (contract 4): tilt_x > 0 accelerates the ball towards +x, tilt_y > 0
+    # towards +y. The PID's u is that tilt, so no sign parameters are needed.
 
     limits:
-      max_tilt_deg: 5.0           # per axis
-      max_rate_deg_s: 30.0        # per axis
+      max_tilt: 0.0872665         # per axis [rad] (5 deg)
+      max_rate: 0.5235988         # per axis [rad/s] (30 deg/s)
 
     # u = kp*e - kd*v + ki*int(e), u in rad, e in m, v in m/s (from the KF)
     pid:
@@ -28,7 +25,7 @@ maze_pid_controller:
       kd: 0.55                    # rad / (m/s)
       ki: 0.6                     # rad / (m s)
       i_zone: 0.02                # integrate only while |e| < i_zone [m]
-      i_max_deg: 1.0              # cap on the integral term
+      i_max: 0.0174533            # cap on the integral term [rad] (1 deg)
 
     tracker:
       lookahead: 0.05             # L [m]

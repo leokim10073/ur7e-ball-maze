@@ -1,7 +1,5 @@
 """Closed-loop tests 1-3: point, straight line, L and U paths (no ROS)."""
 
-import copy
-
 import numpy as np
 import pytest
 
@@ -20,13 +18,27 @@ def test_single_point_settles_on_target(run):
     assert d[30] < d[0], 'ball moved away from the target: sign error?'
 
 
-@pytest.mark.parametrize('axis', ['theta_y_to_ax', 'theta_x_to_ay'])
-def test_wrong_sign_is_detected(run, pid_params, axis):
-    """Flipping one controller sign must make the point test fail."""
-    bad = copy.deepcopy(pid_params)
-    bad['sign'][axis] *= -1
-    log, path = run('point', ctrl_params=bad)
+@pytest.mark.parametrize('axis', ['tilt_x_to_ax', 'tilt_y_to_ay'])
+def test_wrong_sign_is_detected(run, sim_params, axis):
+    """A plant that reads one BoardTilt axis with the wrong sign (an arm that
+    gets contract 4 backwards) must make the point test fail."""
+    sign = dict(sim_params['sign'])
+    sign[axis] *= -1
+    key = {'tilt_x_to_ax': 'sign_x', 'tilt_y_to_ay': 'sign_y'}[axis]
+    log, path = run('point', **{key: sign[axis]})
     assert dist_to_goal(log, path)[-1] > 0.05
+
+
+def test_output_is_contract_4_tilt(pid_params):
+    """Ball at the origin, target at +x: tilt_x > 0 and tilt_y == 0; target at
+    +y: tilt_y > 0 and tilt_x == 0 (tilt_x > 0 sends the ball to +x)."""
+    from maze_control.pid.controller import PidPathController
+    for target, axis in (((0.1, 0.0), 0), ((0.0, 0.1), 1)):
+        ctrl = PidPathController.from_params(pid_params)
+        ctrl.on_path([target])
+        ctrl.on_state(0.0, (0.0, 0.0), (0.0, 0.0))
+        tilt = ctrl.update(0.0)
+        assert tilt[axis] > 0.0 and tilt[1 - axis] == 0.0, tilt
 
 
 # ----------------------------------------------------------- 2. straight line

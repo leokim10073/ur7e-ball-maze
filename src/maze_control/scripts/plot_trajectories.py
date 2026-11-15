@@ -35,7 +35,7 @@ def main():
     args = ap.parse_args()
 
     P, SP = load_params('pid.yaml'), load_params('sim.yaml')
-    max_tilt = P['limits']['max_tilt_deg']
+    max_tilt = float(np.degrees(P['limits']['max_tilt']))   # plotted in deg
     goal_tol = P['tracker']['goal_tol']
 
     plt.rcParams.update({'font.size': 9, 'axes.edgecolor': GRID,
@@ -81,13 +81,13 @@ def main():
         ax = axes[1, col]
         for lim in (-max_tilt, max_tilt):
             ax.axhline(lim, color=INK2, lw=0.8, ls=':')
-        ax.plot(t, cmd[:, 0], color=BLUE, lw=1.5, label='θx cmd')
-        ax.plot(t, cmd[:, 1], color=ORANGE, lw=1.5, label='θy cmd')
+        ax.plot(t, cmd[:, 0], color=BLUE, lw=1.5, label='tilt_x cmd')
+        ax.plot(t, cmd[:, 1], color=ORANGE, lw=1.5, label='tilt_y cmd')
         ax.set_ylim(-max_tilt * 1.25, max_tilt * 1.25)
         ax.set_ylabel('tilt [deg]'), ax.grid(color=GRID, lw=0.6)
         if col == 0:
             ax.legend(loc='upper right', frameon=False, fontsize=8, ncol=2)
-            ax.text(0.01, max_tilt, ' ±5° limit', va='bottom', color=INK2,
+            ax.text(0.01, max_tilt, f' ±{max_tilt:g}° limit', va='bottom', color=INK2,
                     fontsize=7.5, transform=ax.get_yaxis_transform())
 
         # Row 3: distance to goal and cross-track error

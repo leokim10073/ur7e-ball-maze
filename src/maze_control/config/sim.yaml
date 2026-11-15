@@ -1,5 +1,5 @@
 # Offline simulator (maze_control.common.ball_sim) used by the tests and plots.
-# Ball: 14 mm solid steel sphere, rolling without slipping -> a = (5/7) g sin(theta).
+# Ball: 14 mm solid steel sphere, rolling without slipping -> a = (5/7) g sin(tilt).
 ball_sim:
   ros__parameters:
     c: 0.3              # viscous rolling loss [1/s]
@@ -8,7 +8,9 @@ ball_sim:
     dt_phys: 0.001      # integration step [s]
     noise_pos: 0.0      # measured position noise, std [m]
     noise_vel: 0.0      # measured velocity noise, std [m/s]
-    # The true plant signs. The controller's signs in pid.yaml must match.
+    # Sign of the ball acceleration per BoardTilt axis. Contract 4 defines
+    # tilt_x / tilt_y by their effect on the ball, so the true plant is +1, +1;
+    # a test flips one to model an arm that gets the convention wrong.
     sign:
-      theta_y_to_ax: 1.0
-      theta_x_to_ay: -1.0
+      tilt_x_to_ax: 1.0
+      tilt_y_to_ay: 1.0

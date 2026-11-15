@@ -3,13 +3,28 @@ all parameters come from config/pid.yaml (passed in by the launch file)."""
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Vector3Stamped
-from nav_msgs.msg import Odometry, Path
+from maze_interfaces.msg import BallState, BoardTilt
+from nav_msgs.msg import Path
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
+                       ReliabilityPolicy)
 
 from ..common.config import unflatten
 from .controller import PidPathController
+
+# QoS from docs/interfaces.md.
+# Contract 2: /ball/state is best effort, keep last 1. A reliable subscriber
+# would be incompatible with it and receive nothing.
+STATE_QOS = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
+                       reliability=ReliabilityPolicy.BEST_EFFORT)
+# Contract 3: the route is latched, so a restarted controller gets the current path.
+PATH_QOS = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
+                      reliability=ReliabilityPolicy.RELIABLE,
+                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
+# Contract 4a: /board/tilt_cmd is reliable, keep last 1.
+TILT_QOS = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
+                      reliability=ReliabilityPolicy.RELIABLE)
 
 
 class PidNode(Node):
@@ -26,9 +41,10 @@ class PidNode(Node):
         topics = params['topics']
         self.frame_id = params['frame_id']
 
-        self.create_subscription(Odometry, topics['state'], self.on_state, 10)
-        self.create_subscription(Path, topics['path'], self.on_path, 10)
-        self.pub = self.create_publisher(Vector3Stamped, topics['tilt_cmd'], 10)
+        self.create_subscription(BallState, topics['state'], self.on_state,
+                                 STATE_QOS)
+        self.create_subscription(Path, topics['path'], self.on_path, PATH_QOS)
+        self.pub = self.create_publisher(BoardTilt, topics['tilt_cmd'], TILT_QOS)
         self.create_timer(1.0 / params['rate_hz'], self.on_timer)
         self._last_status = None
 
@@ -36,10 +52,14 @@ class PidNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def on_state(self, msg):
+        # tracking_ok = false: x, y are only the filter's prediction. Such a
+        # state does not feed the watchdog, so after state_timeout (0.2 s,
+        # contract 2) without a real detection the board goes level.
+        if not msg.tracking_ok:
+            return
         # Receive time drives the watchdog, so camera/robot clock offsets
         # cannot hide a stalled estimator.
-        p, v = msg.pose.pose.position, msg.twist.twist.linear
-        self.ctrl.on_state(self.now_s(), (p.x, p.y), (v.x, v.y))
+        self.ctrl.on_state(self.now_s(), (msg.x, msg.y), (msg.vx, msg.vy))
 
     def on_path(self, msg):
         pts = np.array([(ps.pose.position.x, ps.pose.position.y)
@@ -49,11 +69,11 @@ class PidNode(Node):
                                    f'{self.ctrl.tracker.length:.3f} m')
 
     def on_timer(self):
-        theta = self.ctrl.update(self.now_s())
-        out = Vector3Stamped()
+        tilt = self.ctrl.update(self.now_s())
+        out = BoardTilt()
         out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = self.frame_id
-        out.vector.x, out.vector.y = float(theta[0]), float(theta[1])
+        out.tilt_x, out.tilt_y = float(tilt[0]), float(tilt[1])
         self.pub.publish(out)
         if self.ctrl.status != self._last_status:
             self.get_logger().info(f'status: {self.ctrl.status}')

@@ -5,8 +5,6 @@ calls ``update`` from a 60 Hz timer. Tests drive it the same way with
 simulated time.
 """
 
-import math
-
 import numpy as np
 
 from ..common.path_tracker import PathTracker
@@ -30,19 +28,16 @@ class PidPathController:
     @classmethod
     def from_params(cls, p):
         """Build from the nested ``ros__parameters`` dict of config/pid.yaml."""
-        lim, pid, trk, sign = p['limits'], p['pid'], p['tracker'], p['sign']
-        deg = math.pi / 180.0
+        lim, pid, trk = p['limits'], p['pid'], p['tracker']
         tracker = PathTracker(lookahead=trk['lookahead'],
                               goal_tol=trk['goal_tol'],
                               search_ahead=trk['search_ahead'],
                               search_back=trk['search_back'])
         ctrl = PIDController(kp=pid['kp'], ki=pid['ki'], kd=pid['kd'],
                              i_zone=pid['i_zone'],
-                             i_max=pid['i_max_deg'] * deg,
-                             max_tilt=lim['max_tilt_deg'] * deg,
-                             max_rate=lim['max_rate_deg_s'] * deg,
-                             sign_ax=sign['theta_y_to_ax'],
-                             sign_ay=sign['theta_x_to_ay'])
+                             i_max=pid['i_max'],
+                             max_tilt=lim['max_tilt'],
+                             max_rate=lim['max_rate'])
         return cls(tracker, ctrl, rate_hz=p['rate_hz'],
                    state_timeout=p['watchdog']['state_timeout'])
 
@@ -65,7 +60,7 @@ class PidPathController:
         self.t_state = float(t)
 
     def update(self, t):
-        """Return np.array([theta_x, theta_y]) (rad) for time t (s)."""
+        """Return np.array([tilt_x, tilt_y]) (rad, BoardTilt) for time t (s)."""
         nominal = 1.0 / self.rate_hz
         dt = nominal if self.t_last is None else t - self.t_last
         dt = min(max(dt, 0.0), 2.0 * nominal)   # bound the step after a stall
