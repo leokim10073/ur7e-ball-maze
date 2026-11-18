@@ -1,4 +1,5 @@
-"""Board pose from the sim's own overhead camera image, against the sim's ground truth.
+"""Board pose (P1) and maze map (P2) from the sim's own overhead camera image, against the sim's
+ground truth and the CAD.
 
 Renders the MuJoCo scene offline (no ROS), with the board tilted and shifted in its grasp.
 Needs mujoco and maze_sim_description (both in the maze-sim container); skipped without them.
@@ -6,6 +7,7 @@ Needs mujoco and maze_sim_description (both in the maze-sim container); skipped 
 
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -16,8 +18,10 @@ from maze_sim_description.camera_math import look_at_quaternion, pinhole_intrins
 from maze_sim_description.config import load_sim_config  # noqa: E402
 from maze_sim_description.scene_builder import build_scene  # noqa: E402
 
-from maze_perception.board_pose import Camera, estimate_board_pose  # noqa: E402
+from maze_perception.board_pose import Camera, estimate_board_pose, rectify  # noqa: E402
+from maze_perception.maze_map import MazeGeometry, build_board_map  # noqa: E402
 from maze_perception.markers import MarkerDetector  # noqa: E402
+from test_maze_map import cad_walls  # noqa: E402
 
 
 def _sim_pkg():
@@ -49,8 +53,9 @@ def _angle_deg(Ra, Rb):
     return np.degrees(np.arccos(np.clip((np.trace(Ra.T @ Rb) - 1) / 2, -1, 1)))
 
 
-@pytest.mark.parametrize("seed", range(6))
-def test_board_pose_matches_ground_truth(sim, cfg, seed):
+def _render(sim, seed):
+    """(image, data, camera): the sim's overhead image with the board at its start pose (seed 0)
+    or tilted up to 6 deg and shifted up to 2 cm in the grasp."""
     sim_cfg, model, renderer = sim
     data = mujoco.MjData(model)
     mujoco.mj_resetDataKeyframe(model, data, model.key("start").id)
@@ -71,6 +76,13 @@ def test_board_pose_matches_ground_truth(sim, cfg, seed):
     w, h = sim_cfg.camera.resolution
     fx, fy, cx, cy = pinhole_intrinsics(w, h, sim_cfg.camera.hfov_deg)
     camera = Camera(K=np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]]), D=np.zeros(5), width=w, height=h)
+    return image, data, camera
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_board_pose_matches_ground_truth(sim, cfg, seed):
+    sim_cfg = sim[0]
+    image, data, camera = _render(sim, seed)
     corners = MarkerDetector(cfg.board.dictionary, ids=cfg.board.markers).detect(image)
     assert sorted(corners) == [0, 1, 2, 3]
     pose = estimate_board_pose(corners, cfg.board, camera, cfg.pose)
@@ -90,3 +102,21 @@ def test_board_pose_matches_ground_truth(sim, cfg, seed):
     px = camera.K @ (R_wc.T @ (ball_w - np.asarray(sim_cfg.camera.position)))
     found = pose.pixel_to_board(px[:2] / px[2], camera, z=truth[2])[0]
     assert np.linalg.norm(found[:2] - truth[:2]) < 1e-3
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_maze_map_matches_cad(sim, cfg, seed):
+    # P2: the walls found in the rectified sim image are exactly the CAD's, at every tilt
+    image, _, camera = _render(sim, seed)
+    corners = MarkerDetector(cfg.board.dictionary, ids=cfg.board.markers).detect(image)
+    pose = estimate_board_pose(corners, cfg.board, camera, cfg.pose)
+    gray = cv2.cvtColor(rectify(image, pose, camera, cfg.rectified), cv2.COLOR_RGB2GRAY)
+    m = build_board_map(gray, cfg.maze, cfg.rectified)
+    assert m is not None
+    truth = cad_walls(cfg.maze.level, MazeGeometry(cfg.maze))
+    wrong = sorted(k for k in truth if m.walls[k] != truth[k])
+    assert not wrong, f"segments wrong: {wrong}"
+    # margin: the weakest inner wall and the strongest empty segment stay well clear of the cut
+    cut = cfg.maze.wall_contrast
+    assert min(m.scores[k] for k, p in truth.items() if p and k[1] not in (0, cfg.maze.layout.n)) > 1.5 * cut
+    assert max(m.scores[k] for k, p in truth.items() if not p) < 0.5 * cut

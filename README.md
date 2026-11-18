@@ -194,6 +194,19 @@ The tool replaces every mesh and marker texture in `--out-dir` and writes `board
 | `ball.radius`, `mass`, `start`, `friction` | Steel ball; `start` is xy in the board frame |
 | `physics.timestep`, `real_time_factor`, `noslip_iterations` | 2 ms steps, target speed (1.0 = wall clock), grasp contact solver iterations |
 
+### Maze map (P2)
+
+`maze_map.py` (no ROS) turns the rectified image into the map of [contract 1](docs/interfaces.md): a 60 × 60 occupancy grid of 5 mm cells over the plate (row 0 on the −y edge, the lip outside the outer walls counts as wall), plus start, goal and holes.
+
+- **Walls are detected, on the level's grid.** Every level is an n × n grid of cells (`maze_CAD/scripts/levels.py`), so a wall can only sit on a grid line between two nodes. Each of the 2n(n+1) segments gets a score: how far below the floor's gray level the darkest line across it lies, as a median along it (the ball or a ring on one spot does not decide it). A score ≥ `wall_contrast` (15 gray levels) is a wall.
+- **Why not by color:** in the sim the wall tops are the floor's color; a wall shows only as the dark line of its side face. On the real board this needs checking again (P6).
+- **Start, goal and holes are given** by the level's entry in `perception.yaml` (cells as in the CAD, rows from the top), not detected; the ArUco pose already places them.
+- **No board, no map:** if the outer walls do not reach `wall_contrast`, `build_board_map` returns None (contract 1: never a partial map).
+
+On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm): every segment matches the CAD; inner walls score ≥ 31, empty segments 0. The level layout in `perception.yaml` is checked against `maze_CAD/scripts` and `sim.yaml` by `test_maze_map.py`.
+
+Not yet: the node that publishes `/maze/map` (`maze_interfaces` is now in `main`); holes are taken from the config, not detected (L1 has none).
+
 ### Tests (inside `maze-sim`)
 
 ```bash
@@ -206,7 +219,7 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: [#23](https://github.com/leokim10073/ee206-project/issues/23). So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board for mapping.
+`maze_perception` turns the overhead camera image into board coordinates. Work package: [#23](https://github.com/leokim10073/ee206-project/issues/23). So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P2, the maze map from that image (library only, no node yet).
 
 The geometry is a plain Python library (`board_pose.py`, no ROS) so the later ball tracker and mapper can use it directly; `board_tracker` is the ROS node around it.
 
@@ -227,7 +240,7 @@ On the robot, add `use_sim_time:=false`. Look at the rectified board with `ros2 
 
 The board frame is the sim's and the CAD's: origin at the plate center, z up, z = 0 on the maze floor, handle on −x, m. Every 10 s the node logs frames/s, the share of frames with a board pose, and ms per frame (about 4 ms at 1280×720).
 
-[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit and the rectified image area.
+[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit, the rectified image area, and the maze geometry and wall threshold for P2.
 
 ### Accuracy
 
@@ -244,7 +257,7 @@ colcon build && source install/setup.bash
 cd src/maze_perception && python3 -m pytest test
 ```
 
-`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares against ground truth; `test_node.py` runs `board_tracker` over ROS on a synthetic image.
+`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose against ground truth and the maze map against the CAD; `test_node.py` runs `board_tracker` over ROS on a synthetic image.
 
 ## CAD maze map
 

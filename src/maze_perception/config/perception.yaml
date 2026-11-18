@@ -23,3 +23,27 @@ rectified:
   x_range: [-0.150, 0.150]           # board area drawn in the rectified image, m (the 300 x 300 plate)
   y_range: [-0.150, 0.150]
   px_per_m: 2000.0                   # 2 px/mm -> 600 x 600 image; image x = board +x, image up = board +y
+
+maze:
+  # Board geometry shared by every level (maze_CAD/scripts/maze_params.py, checked by a test).
+  plate: 0.300                       # base plate side, m; centered on the board origin
+  margin: 0.003                      # lip between the plate edge and the outer wall
+  wall_thickness: 0.006
+  # Map output (docs/interfaces.md, contract 1): 5 mm cells over the plate, row 0 on the -y edge.
+  resolution: 0.005
+  # Wall detection. Each wall segment between two grid nodes gets a darkness score from the
+  # rectified image: how far below the floor's gray level its darkest line lies (median along it).
+  # In the sim (L1, board tilted up to 6 deg): inner walls score >= 31, empty segments 0.
+  search_margin: 0.003               # look this far on each side of a wall's footprint (parallax, pose error)
+  wall_contrast: 15.0                # a segment with a score >= this is a wall; outer walls below it -> no map
+  level: L1
+  # Per-level layout (maze_CAD/scripts/levels.py). Rows count from the TOP (+y edge), columns from
+  # the left (-x edge), as in the CAD. Start, goal and holes are given, not detected; walls are detected.
+  levels:
+    L1:
+      n: 6                           # n x n cells
+      cell: 0.042                    # cell size between walls, m
+      start: [0, 0]                  # (row, col)
+      goal: [4, 5]                   # (row, col)
+      goal_radius: 0.015
+      holes: []                      # [row, col, diameter_m] trap holes
