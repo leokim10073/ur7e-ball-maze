@@ -4,7 +4,7 @@ This file is the contract between our own modules: what each one publishes, in w
 
 Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/camera/image_raw`, ...) are fixed by the lab driver and copied by the sim; see the README's [Simulation → Interfaces](../README.md#interfaces) table. Perception's board pose topics are in the README's [Perception](../README.md#perception) section.
 
-- Last updated: 2026-11-18
+- Last updated: 2026-11-19
 - Status: v0, reviewed (work package [#26](https://github.com/leokim10073/ee206-project/issues/26), I1 [#27](https://github.com/leokim10073/ee206-project/issues/27))
 - Owner: Leo Chen (from Jing Xu)
 - Reviewers: Zhuoren (perception), Steven (ball control), Chelsea (arm control), Leo (sim)
@@ -17,23 +17,22 @@ Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/c
 - **No magic numbers.** Ball radius, board size and tilt limits come from config or from a message, never from constants in code.
 - **Messages** live in the `maze_interfaces` package. Standard ROS types are used inside them (`nav_msgs/OccupancyGrid`, `nav_msgs/Path`, `geometry_msgs/Point`) so RViz and ROS tools work.
 - **Topic names** follow the ones ball control (#11) and arm control (#25) already use: `/maze/`* for the maze and route, `/ball/*` for the ball, `/board/*` for the board tilt.
-- **One publisher per topic.** For example, the CAD map tool and perception both publish `/maze/map`; never run both.
+- **One publisher per topic.** For example, the sim stand-in and the ball tracker both publish `/ball/state`; never run both.
 
 ## Overview
 
 | # | Contract | Topic | Type | Publisher → Subscribers | Rate | QoS |
 |---|---|---|---|---|---|---|
-| 1 | Maze map | `/maze/map` | `maze_interfaces/MazeMap` | CAD map tool (now) / perception P2 → planner | Once per maze | reliable, transient local |
+| 1 | Maze map | `/maze/map` | `maze_interfaces/MazeMap` | CAD map tool → planner | Once per maze | reliable, transient local |
 | 2 | Ball state | `/ball/state` | `maze_interfaces/BallState` | perception P3/P4 → planner, ball control | Every camera frame, ~60 Hz | best effort, last 1 |
 | 3 | Planned route | `/maze/route` (+ `/maze/path`) | `maze_interfaces/PlannedRoute` (+ `nav_msgs/Path`) | planner → ball control | On each plan or replan | reliable, transient local |
 | 4a | Tilt command | `/board/tilt_cmd` | `maze_interfaces/BoardTilt` | ball control → arm control | Control rate, ~60 Hz | reliable, last 1 |
 | 4b | Measured tilt | `/board/tilt_state` | `maze_interfaces/BoardTilt` | arm control → ball control, system ID | ≥ 60 Hz | best effort, last 1 |
 
 ```
- camera ──► perception ──(1) /maze/map──► planner ──(3) /maze/route──► ball control ──(4a) /board/tilt_cmd──► arm control ──► UR7e / sim
-               │                            ▲                            ▲    ▲                                   │
+ CAD map ────────────────(1) /maze/map──► planner ──(3) /maze/route──► ball control ──(4a) /board/tilt_cmd──► arm control ──► UR7e / sim
+ camera ──► perception                      ▲                            ▲    ▲                                   │
                └──────────(2) /ball/state───┴────────────────────────────┘    └──────(4b) /board/tilt_state───────┘
-   (CAD map tool publishes (1) until perception P2 exists)
 ```
 
 "Latched" below means reliable + transient local durability: a node that starts later (or restarts) still receives the last message, like a notice pinned on a board.
@@ -42,7 +41,9 @@ Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/c
 
 ## Contract 1: Maze map
 
-**Publisher:** the CAD map tool (`maze_cad_map`, interfaces I3) until perception P2 (Zhuoren, #23) is ready. Both publish the same message on the same topic.
+**Publisher:** the CAD map tool (`maze_cad_map`, interfaces I3), in the sim and on the real board.
+
+**The map always comes from the CAD; perception does not map the maze.** The sim board and the printed board are both built from the same CAD files, so the CAD map is exact for both. A map read from the camera could only add error. Perception's part is the board pose (ArUco), which places the CAD map in the camera image, and the ball state (contract 2). What is left is how well the printed board matches the CAD: check it in the fabrication trial (#4) and cover it with the planner's wall margin.
 
 **Subscribers:** planner.
 
@@ -52,9 +53,8 @@ Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/c
 
 ```
 # MazeMap.msg
-std_msgs/Header header        # frame_id = "maze_board"; stamp = capture time of the image the map
-                              # was built from (CAD tool: the time it was published)
-string source                 # "cad:L1", "perception", ...
+std_msgs/Header header        # frame_id = "maze_board"; stamp = the time it was published
+string source                 # "cad:L1", "cad:L2", ...
 nav_msgs/OccupancyGrid walls  # 0 = free floor, 100 = wall or outside the outer walls, -1 = unknown
                               # (the planner treats -1 as wall). Holes are NOT in the grid.
                               # resolution 0.005 m; 60 x 60 cells cover the 300 x 300 mm maze area
@@ -71,7 +71,7 @@ float64 y
 float64 radius   # m
 ```
 
-**Why a grid for walls and circles for holes:** A* runs directly on a grid, RViz draws it, and a camera naturally produces one. Holes and the goal are round, so a circle is exact, and the planner chooses its own clearance from them. The grid's rows count from the bottom, as in every ROS tool; the CAD counts rows from the top, so the CAD tool flips them.
+**Why a grid for walls and circles for holes:** A* runs directly on a grid, and RViz draws it. Holes and the goal are round, so a circle is exact, and the planner chooses its own clearance from them. The grid's rows count from the bottom, as in every ROS tool; the CAD counts rows from the top, so the CAD tool flips them.
 
 **The grid covers the maze area, not the whole board.** The board is larger: the ArUco markers sit at y = ±0.179 m (`maze_perception/config/perception.yaml`), outside the grid. Size the grid from the maze area. It matches perception's rectified image `/perception/board_image` (the same ±0.15 m square at 2 px/mm), so each 5 mm cell is a 10 × 10 px block of that image.
 
@@ -83,15 +83,13 @@ float64 radius   # m
 
 **Edge cases:**
 
-- Board not found, or start/goal not found: publish no map and log an error. Never publish a partial map.
-- Part of the board hidden (e.g. by the gripper): those cells are −1 (unknown); the planner treats unknown as wall.
+- Level not in `levels.py`, or the CAD files not found: publish no map and log an error. Never publish a partial map.
 - No map received yet: the planner does not plan; ball control keeps the board level.
 
 **How to check:**
 
 - `maze_cad_map`'s tests: the CAD map's walls, start and goal match the sim export (`parts_report.json`) and `sim.yaml`.
 - In RViz, `/maze/map/walls` drawn over the sim board: walls line up within one cell (5 mm).
-- Perception's L1 map vs the CAD map: they differ only in cells next to a wall; start and goal within 5 mm.
 
 **Example message (L1 from the CAD tool):**
 
@@ -283,3 +281,4 @@ tilt_y: -0.010
 
 - v0 (2026-11-12): first draft. Contracts 1–4, `maze_interfaces` messages, CAD map tool.
 - v0 (2026-11-18): review on #31. Contract 1: goal from CAD, grid = maze area. Contract 2: one `tracking_timeout` (0.2 s), publish a prediction when the board is lost, ball center at z = r, controller predicts forward from `header.stamp`. Contract 4: hard limits 5° and 0.5 rad/s. Confirmed by Steven: `/maze/path` and the tilt sign.
+- v0 (2026-11-19): Contract 1: the map always comes from the CAD, in the sim and on the real board; perception no longer maps the maze.

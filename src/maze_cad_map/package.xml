@@ -3,7 +3,7 @@
 <package format="3">
   <name>maze_cad_map</name>
   <version>0.1.0</version>
-  <description>Publishes a maze level's MazeMap from the CAD source (maze_CAD/scripts/levels.py), as a stand-in for perception P2 and its answer key.</description>
+  <description>Publishes a maze level's MazeMap from the CAD source (maze_CAD/scripts/levels.py).</description>
   <maintainer email="jing_xu1112@berkeley.edu">Jing Xu</maintainer>
   <license>MIT</license>
 

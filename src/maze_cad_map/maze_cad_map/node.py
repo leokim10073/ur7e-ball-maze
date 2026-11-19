@@ -1,5 +1,5 @@
-"""cad_map: publishes a CAD level's maze map (contract 1, docs/interfaces.md), so planning can run
-before perception P2 exists, and P2 has an answer key.
+"""cad_map: publishes a CAD level's maze map (contract 1, docs/interfaces.md), the only map source,
+in the sim and on the real board (perception does not map the maze).
 
 Publishes (reliable, transient local: a node that starts later still gets the map)
   /maze/map         maze_interfaces/MazeMap    the map
@@ -10,7 +10,7 @@ Parameters
   level        key in levels.py, default L1
   resolution   m per cell, default 0.005
 
-Never run it next to a perception map publisher: both publish /maze/map.
+Run one per maze: a second /maze/map publisher would fight it.
 """
 
 from pathlib import Path

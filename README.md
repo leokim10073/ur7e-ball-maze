@@ -248,7 +248,7 @@ cd src/maze_perception && python3 -m pytest test
 
 ## CAD maze map
 
-`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz, so planning can run before perception maps the maze. It is also the answer key for perception's map. Work package: [#29](https://github.com/leokim10073/ee206-project/issues/29).
+`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz. It is the only map source, in the sim and on the real board: the camera only finds the board pose and the ball. Work package: [#29](https://github.com/leokim10073/ee206-project/issues/29).
 
 Run it from the repo root, inside `maze-sim` (the default `cad_scripts` path is relative to it):
 
