@@ -18,7 +18,7 @@ from maze_sim_description.camera_math import look_at_quaternion, pinhole_intrins
 from maze_sim_description.config import load_sim_config  # noqa: E402
 from maze_sim_description.scene_builder import build_scene  # noqa: E402
 
-from maze_perception.board_pose import Camera, estimate_board_pose, rectify  # noqa: E402
+from maze_perception.board_pose import Camera, estimate_board_pose, rectified_coverage, rectify  # noqa: E402
 from maze_perception.maze_map import MazeGeometry, build_board_map  # noqa: E402
 from maze_perception.markers import MarkerDetector  # noqa: E402
 from test_maze_map import cad_walls  # noqa: E402
@@ -111,7 +111,9 @@ def test_maze_map_matches_cad(sim, cfg, seed):
     corners = MarkerDetector(cfg.board.dictionary, ids=cfg.board.markers).detect(image)
     pose = estimate_board_pose(corners, cfg.board, camera, cfg.pose)
     gray = cv2.cvtColor(rectify(image, pose, camera, cfg.rectified), cv2.COLOR_RGB2GRAY)
-    m = build_board_map(gray, cfg.maze, cfg.rectified)
+    valid = rectified_coverage(pose, camera, cfg.rectified)
+    assert valid.all()  # the sim camera sees the whole maze area
+    m = build_board_map(gray, cfg.maze, cfg.rectified, valid)
     assert m is not None
     truth = cad_walls(cfg.maze.level, MazeGeometry(cfg.maze))
     wrong = sorted(k for k in truth if m.walls[k] != truth[k])

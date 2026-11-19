@@ -202,8 +202,9 @@ The tool replaces every mesh and marker texture in `--out-dir` and writes `board
 - **Why not by color:** in the sim the wall tops are the floor's color; a wall shows only as the dark line of its side face. On the real board this needs checking again (P6).
 - **Start, goal and holes are given** by the level's entry in `perception.yaml` (cells as in the CAD, rows from the top), not detected; the ArUco pose already places them.
 - **No board, no map:** if the outer walls do not reach `wall_contrast`, `build_board_map` returns None (contract 1: never a partial map).
+- **Unseen is unknown, not wall:** where the board leaves the camera image, `rectify()` leaves black. `rectified_coverage()` marks those pixels, and the mapper makes their cells −1 (unknown, which the planner treats as a wall) instead of reading the black as walls. A wall segment more than half seen is still classified from its seen part. With the board cut off from any side, no cell comes out wrong.
 
-On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm): every segment matches the CAD; inner walls score ≥ 31, empty segments 0. The level layout in `perception.yaml` is checked against `maze_CAD/scripts` and `sim.yaml` by `test_maze_map.py`.
+On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm): every segment matches the CAD; inner walls score ≥ 31, empty segments 0. From the CAD walls, the grid is cell for cell the one `maze_cad_map` (#32) publishes. The level layout in `perception.yaml` is checked against `maze_CAD/scripts` and `sim.yaml` by `test_maze_map.py`.
 
 Not yet: the node that publishes `/maze/map` (`maze_interfaces` is now in `main`); holes are taken from the config, not detected (L1 has none).
 

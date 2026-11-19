@@ -137,3 +137,11 @@ def rectify(image: np.ndarray, pose: BoardPose, camera: Camera, settings: Rectif
     xy = rectified_to_board(np.column_stack([cols.ravel(), rows.ravel()]), settings)
     px = pose.board_to_pixel(np.column_stack([xy, np.full(len(xy), z)]), camera).astype(np.float32)
     return cv2.remap(image, px[:, 0].reshape(h, w), px[:, 1].reshape(h, w), cv2.INTER_LINEAR)
+
+
+def rectified_coverage(pose: BoardPose, camera: Camera, settings: RectifiedSettings, z: float = 0.0) -> np.ndarray:
+    """(height, width) bool: True where the rectified image comes from inside the camera image.
+    Elsewhere rectify() leaves black, which must not be read as a dark wall. Pixels at the
+    image border, blended with the outside, count as outside."""
+    white = np.full((camera.height, camera.width), 255, np.uint8)
+    return rectify(white, pose, camera, settings, z) == 255

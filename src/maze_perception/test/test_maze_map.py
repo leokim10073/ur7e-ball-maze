@@ -11,7 +11,7 @@ import yaml
 from conftest import PKG, REPO
 from maze_perception.board_pose import board_to_rectified
 from maze_perception.config import load_perception_config
-from maze_perception.maze_map import FREE, WALL, MazeGeometry, build_board_map, rasterize
+from maze_perception.maze_map import FREE, UNKNOWN, WALL, MazeGeometry, build_board_map, rasterize
 
 
 def _cad_module(name):
@@ -97,6 +97,16 @@ def test_l1_walls_where_the_cad_has_them(cfg):
     for seg, present in cad_walls(cfg.maze.level, geom).items():
         x0, x1, y0, y1 = geom.segment_rect(seg)
         assert at((x0 + x1) / 2, (y0 + y1) / 2) == (WALL if present else FREE), seg
+
+
+def test_raster_matches_cad_map_tool(cfg):
+    # the same CAD walls through our raster and through maze_cad_map (#32): identical grids
+    cad_map = pytest.importorskip("maze_cad_map.cad_map")
+    cad = cad_map.build_map(REPO / "maze_CAD" / "scripts", cfg.maze.level, cfg.maze.resolution)
+    geom = MazeGeometry(cfg.maze)
+    grid, origin = rasterize(cad_walls(cfg.maze.level, geom), geom)
+    np.testing.assert_array_equal(grid, cad.grid)
+    assert origin == pytest.approx(cad.origin)
 
 
 def synthetic(cfg, walls, floor=180, line=60, noise=4.0, seed=0):
@@ -192,4 +202,49 @@ def test_grid_too_big_for_plate(tmp_path):
 def test_unknown_level_is_named(tmp_path):
     src = (PKG / "config" / "perception.yaml").read_text().replace("level: L1", "level: L9")
     with pytest.raises(ValueError, match="maze.level L9"):
+        load_perception_config(_write(tmp_path, src))
+
+
+def _cut_left(cfg, img, cols):
+    """The rectified image as rectify() leaves it when the board's left part is out of the camera:
+    black there, and the coverage mask False."""
+    valid = np.ones(img.shape, bool)
+    valid[:, :cols] = False
+    img = img.copy()
+    img[:, :cols] = 0
+    return img, valid
+
+
+def test_board_partly_outside_camera(cfg):
+    geom = MazeGeometry(cfg.maze)
+    truth = cad_walls(cfg.maze.level, geom)
+    img, valid = _cut_left(cfg, synthetic(cfg, truth), 150)  # x < -0.075 m not seen
+    m = build_board_map(img, cfg.maze, cfg.rectified, valid)
+    assert m is not None
+    cad_grid, origin = rasterize(truth, geom)
+    xs = origin[0] + (np.arange(60) + 0.5) * cfg.maze.resolution
+    hidden_cols = xs < -0.075
+    # the black part is never read as walls or floor: unknown, or a wall we know is there
+    assert set(np.unique(m.grid[:, hidden_cols])) <= {UNKNOWN, WALL}
+    assert (m.grid[:, hidden_cols][cad_grid[:, hidden_cols] == FREE] == UNKNOWN).all()
+    # nothing anywhere is wrong: every cell is the CAD's value or unknown
+    assert ((m.grid == cad_grid) | (m.grid == UNKNOWN)).all()
+    # one grid pitch away from the cut, every cell is known and the CAD's
+    far = xs > -0.075 + geom.pitch
+    np.testing.assert_array_equal(m.grid[:, far], cad_grid[:, far])
+    # a segment more than half seen is still classified
+    assert sum(v is None for v in m.walls.values()) < sum(1 for k in m.walls if not geom.is_outer(k))
+    for seg, present in m.walls.items():
+        assert present is None or present == truth[seg]
+
+
+def test_no_board_seen_no_map(cfg):
+    geom = MazeGeometry(cfg.maze)
+    img = synthetic(cfg, cad_walls(cfg.maze.level, geom))
+    assert build_board_map(img, cfg.maze, cfg.rectified, np.zeros(img.shape, bool)) is None
+
+
+def test_hole_diameter_must_be_positive(tmp_path):
+    src = (PKG / "config" / "perception.yaml").read_text().replace("holes: []", "holes: [[1, 1, 0.0]]")
+    with pytest.raises(ValueError, match="diameters must be positive"):
         load_perception_config(_write(tmp_path, src))

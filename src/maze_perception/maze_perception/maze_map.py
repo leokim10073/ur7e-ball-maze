@@ -8,7 +8,8 @@ sim the wall tops are the floor's color; a wall shows as the dark line of its ed
 so the score is how much darker than the floor the darkest line across the segment is (median
 along it, so the ball, a ring or a short glare does not decide it). A segment scoring at least
 wall_contrast gray levels is a wall. The outer walls always exist; if they do not reach it either,
-there is no board in the image and no map.
+there is no board in the image and no map. Parts of the board outside the camera image are
+UNKNOWN cells, not walls (rectify() leaves them black).
 
 Start, goal and holes are given by the level's config, not detected (the ArUco pose places them).
 
@@ -104,11 +105,11 @@ class MazeGeometry:
 class BoardMap:
     """Contract 1 without ROS types."""
 
-    grid: np.ndarray  # (height, width) int8, FREE or WALL; row 0 = the -y edge
+    grid: np.ndarray  # (height, width) int8, FREE, WALL or UNKNOWN; row 0 = the -y edge
     resolution: float  # m per cell
     origin: Tuple[float, float]  # board (x, y) of the grid's lower-left corner
-    walls: Dict[Segment, bool]  # every grid segment: is there a wall
-    scores: Dict[Segment, float]  # darkness score per segment, gray levels
+    walls: Dict[Segment, Optional[bool]]  # every grid segment: is there a wall (None: not seen)
+    scores: Dict[Segment, Optional[float]]  # darkness score per segment, gray levels (None: not seen)
     contrast: float  # the outer walls' median score, gray levels (how well the walls stand out)
     start: Tuple[float, float]
     goal: Circle
@@ -129,32 +130,46 @@ def _pixel_box(rect, rectified: RectifiedSettings, shape) -> Tuple[slice, slice]
     return rows, cols
 
 
-def score_segments(gray: np.ndarray, geom: MazeGeometry, rectified: RectifiedSettings) -> Dict[Segment, float]:
+def score_segments(gray: np.ndarray, geom: MazeGeometry, rectified: RectifiedSettings,
+                   valid: Optional[np.ndarray] = None) -> Dict[Segment, Optional[float]]:
     """Darkness score of every grid segment: floor level minus the median, along the segment, of
     the darkest pixel across it. Only the stretch between the two grid nodes counts (the nodes
-    are shared with the crossing walls); across, the footprint is widened by search_margin."""
+    are shared with the crossing walls); across, the footprint is widened by search_margin.
+
+    valid: rectified_coverage() mask. Only valid pixels set the floor level, and a segment is
+    scored on the stretch along it that is fully seen; with less than half of it seen it scores
+    None (unseen). All None if no floor pixel is valid."""
     s = geom.settings
     gray = np.asarray(gray, float)
+    if valid is None:
+        valid = np.ones(gray.shape[:2], bool)
     rows, cols = _pixel_box(geom.inner_rect(), rectified, gray.shape)
-    floor = float(np.median(gray[rows, cols]))
+    floor_px = gray[rows, cols][valid[rows, cols]]
+    if floor_px.size == 0:
+        return {seg: None for seg in geom.segments()}
+    floor = float(np.median(floor_px))
     t, m = s.wall_thickness, s.search_margin
     out = {}
     for seg in geom.segments():
         x0, x1, y0, y1 = geom.segment_rect(seg)
         rect = (x0 + t, x1 - t, y0 - m, y1 + m) if seg[0] == "h" else (x0 - m, x1 + m, y0 + t, y1 - t)
         rows, cols = _pixel_box(rect, rectified, gray.shape)
-        patch = gray[rows, cols]
-        if patch.size == 0:
-            out[seg] = 0.0
+        patch, ok = gray[rows, cols], valid[rows, cols]
+        across = 0 if seg[0] == "h" else 1
+        seen = ok.all(axis=across)  # per position along the segment
+        if patch.size == 0 or 2 * seen.sum() < seen.size:
+            out[seg] = None
             continue
-        darkest_across = patch.min(axis=0) if seg[0] == "h" else patch.min(axis=1)
-        out[seg] = floor - float(np.median(darkest_across))
+        out[seg] = floor - float(np.median(patch.min(axis=across)[seen]))
     return out
 
 
-def rasterize(walls: Dict[Segment, bool], geom: MazeGeometry) -> Tuple[np.ndarray, Tuple[float, float]]:
-    """Occupancy grid over the plate: a cell is WALL when its center lies in a present wall's
-    footprint or outside the outer walls (the lip), else FREE. Row 0 = the -y edge."""
+def rasterize(walls: Dict[Segment, Optional[bool]], geom: MazeGeometry,
+              cell_seen: Optional[np.ndarray] = None) -> Tuple[np.ndarray, Tuple[float, float]]:
+    """Occupancy grid over the plate. Row 0 = the -y edge. A cell is
+    WALL     when its center lies outside the outer walls (the lip) or in a present wall's footprint;
+    UNKNOWN  otherwise, when it was not seen (cell_seen False) or lies in an unseen segment (None);
+    FREE     otherwise."""
     s = geom.settings
     size = int(round(s.plate / s.resolution))
     origin = (-s.plate / 2, -s.plate / 2)
@@ -162,26 +177,59 @@ def rasterize(walls: Dict[Segment, bool], geom: MazeGeometry) -> Tuple[np.ndarra
     X, Y = np.meshgrid(centers, origin[1] + (np.arange(size) + 0.5) * s.resolution)  # Y[row] grows with row
     ox0, ox1, oy0, oy1 = geom.outer_rect()
     wall = (X < ox0) | (X > ox1) | (Y < oy0) | (Y > oy1)
+    unknown = np.zeros_like(wall) if cell_seen is None else ~np.asarray(cell_seen, bool)
     for seg, present in walls.items():
+        if present is False:
+            continue
+        x0, x1, y0, y1 = geom.segment_rect(seg)
+        inside = (X >= x0) & (X <= x1) & (Y >= y0) & (Y <= y1)
         if present:
-            x0, x1, y0, y1 = geom.segment_rect(seg)
-            wall |= (X >= x0) & (X <= x1) & (Y >= y0) & (Y <= y1)
-    return np.where(wall, WALL, FREE).astype(np.int8), origin
+            wall |= inside
+        else:
+            unknown |= inside
+    grid = np.where(wall, WALL, np.where(unknown, UNKNOWN, FREE))
+    return grid.astype(np.int8), origin
 
 
-def build_board_map(gray: np.ndarray, settings: MazeSettings, rectified: RectifiedSettings) -> Optional[BoardMap]:
+def cells_seen(valid: np.ndarray, geom: MazeGeometry, rectified: RectifiedSettings) -> np.ndarray:
+    """(size, size) bool over the occupancy grid (row 0 = -y edge): every rectified pixel of the
+    cell is valid."""
+    s = geom.settings
+    size = int(round(s.plate / s.resolution))
+    lo = -s.plate / 2
+    out = np.zeros((size, size), bool)
+    for r in range(size):
+        for c in range(size):
+            x0, y0 = lo + c * s.resolution, lo + r * s.resolution
+            rows, cols = _pixel_box((x0, x0 + s.resolution, y0, y0 + s.resolution), rectified, valid.shape)
+            block = valid[rows, cols]
+            out[r, c] = block.size > 0 and bool(block.all())
+    return out
+
+
+def build_board_map(gray: np.ndarray, settings: MazeSettings, rectified: RectifiedSettings,
+                    valid: Optional[np.ndarray] = None) -> Optional[BoardMap]:
     """The map from a rectified grayscale image of the board (as rectify() makes it, z = 0).
 
-    None when the outer walls do not stand out from the floor by settings.wall_contrast (no board
-    in the image, or the wrong area rectified): contract 1 says never publish a partial map.
+    valid: rectified_coverage() of the same pose. Parts of the board outside the camera image
+    become UNKNOWN cells (contract 1: the planner treats them as walls), not walls or floor.
+    Outer walls are always walls, seen or not.
+
+    None when the seen outer walls do not stand out from the floor by settings.wall_contrast, or
+    none is seen (no board in the image, or the wrong area rectified): never a partial map.
     """
     geom = MazeGeometry(settings)
-    scores = score_segments(gray, geom, rectified)
-    contrast = float(np.median([v for k, v in scores.items() if geom.is_outer(k)]))
+    scores = score_segments(gray, geom, rectified, valid)
+    outer = [v for k, v in scores.items() if geom.is_outer(k) and v is not None]
+    if not outer:
+        return None
+    contrast = float(np.median(outer))
     if contrast < settings.wall_contrast:
         return None
-    walls = {k: geom.is_outer(k) or v >= settings.wall_contrast for k, v in scores.items()}
-    grid, origin = rasterize(walls, geom)
+    walls = {k: True if geom.is_outer(k) else (None if v is None else v >= settings.wall_contrast)
+             for k, v in scores.items()}
+    seen = None if valid is None else cells_seen(valid, geom, rectified)
+    grid, origin = rasterize(walls, geom, seen)
     lv = settings.layout
     return BoardMap(
         grid=grid, resolution=settings.resolution, origin=origin, walls=walls, scores=scores, contrast=contrast,

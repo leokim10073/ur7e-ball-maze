@@ -115,6 +115,10 @@ def _load_maze(m) -> MazeSettings:
     for k in ("plate", "wall_thickness", "resolution", "wall_contrast"):
         if getattr(s, k) <= 0:
             raise ValueError(f"maze.{k} must be positive")
+    if s.margin < 0 or s.search_margin < 0:
+        raise ValueError("maze.margin and maze.search_margin must not be negative")
+    if any(d <= 0 for _, _, d in holes):
+        raise ValueError(f"{key}.holes: diameters must be positive")
     if layout.cell <= 0 or layout.goal_radius <= 0:
         raise ValueError(f"{key}: cell and goal_radius must be positive")
     span = 2 * s.margin + n * layout.cell + (n + 1) * s.wall_thickness
