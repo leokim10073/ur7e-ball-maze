@@ -68,8 +68,10 @@ def test_serialization_round_trip(make):
     msg = make()
     wire = serialize_message(msg)
     back = deserialize_message(wire, type(msg))
-    # compare on the wire: OccupancyGrid's resolution is float32, so 0.005 does not round-trip as a Python float
-    assert serialize_message(back) == wire
+    # compare fields, not bytes: CDR leaves alignment padding unset, so equal messages can differ on
+    # the wire. OccupancyGrid's resolution is float32, so 0.005 does not round-trip as a Python float;
+    # after one trip it is exact, so a second trip must give back the same message.
+    assert deserialize_message(serialize_message(back), type(msg)) == back
     assert back.header.frame_id == "maze_board"
 
 

@@ -4,14 +4,14 @@ This file is the contract between our own modules: what each one publishes, in w
 
 Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/camera/image_raw`, ...) are fixed by the lab driver and copied by the sim; see the README's [Simulation → Interfaces](../README.md#interfaces) table. Perception's board pose topics are in the README's [Perception](../README.md#perception) section.
 
-- Last updated: 2026-11-12
-- Status: draft for review (work package [#26](https://github.com/leokim10073/ee206-project/issues/26), I1 [#27](https://github.com/leokim10073/ee206-project/issues/27))
-- Owner: Jing Xu
+- Last updated: 2026-11-18
+- Status: v0, reviewed (work package [#26](https://github.com/leokim10073/ee206-project/issues/26), I1 [#27](https://github.com/leokim10073/ee206-project/issues/27))
+- Owner: Leo Chen (from Jing Xu)
 - Reviewers: Zhuoren (perception), Steven (ball control), Chelsea (arm control), Leo (sim)
 
 ## Shared rules
 
-- **Board frame** `maze_board`**.** Origin at the plate center, z up, z = 0 on the maze floor, handle on the −x edge, metres. Same as the sim, the CAD (`maze_CAD/README.md`) and perception's TF frame. Every message between our modules uses it.
+- **Board frame** `maze_board`**.** Origin at the center of the maze area, z up, z = 0 on the maze floor, handle on the −x edge, metres. Same as the sim, the CAD (`maze_CAD/README.md`) and perception's TF frame. Every message between our modules uses it.
 - **Units.** SI only: m, m/s, rad, rad/s, s. The CAD is in mm; convert once, where it is read.
 - **Time.** Every message has a `std_msgs/Header`. In the sim every node runs with `use_sim_time:=true`.
 - **No magic numbers.** Ball radius, board size and tilt limits come from config or from a message, never from constants in code.
@@ -57,13 +57,13 @@ std_msgs/Header header        # frame_id = "maze_board"; stamp = capture time of
 string source                 # "cad:L1", "perception", ...
 nav_msgs/OccupancyGrid walls  # 0 = free floor, 100 = wall or outside the outer walls, -1 = unknown
                               # (the planner treats -1 as wall). Holes are NOT in the grid.
-                              # resolution 0.005 m; 60 x 60 cells cover the 300 x 300 mm plate
+                              # resolution 0.005 m; 60 x 60 cells cover the 300 x 300 mm maze area
                               # info.origin = lower-left corner (-0.15, -0.15, 0) in maze_board
                               # row 0 = bottom (-y) edge; cell (row, col) = data[row * width + col]
                               # cell center: x = -0.15 + (col + 0.5) * 0.005, same for y with row
 Circle[] holes                # trap holes the ball must avoid (L1: none). Not the goal.
 geometry_msgs/Point start     # ball start, z = 0, m
-Circle goal                   # goal pocket
+Circle goal                   # goal pocket, from the level's CAD (not detected)
 
 # Circle.msg
 float64 x        # center in maze_board, m
@@ -72,6 +72,10 @@ float64 radius   # m
 ```
 
 **Why a grid for walls and circles for holes:** A* runs directly on a grid, RViz draws it, and a camera naturally produces one. Holes and the goal are round, so a circle is exact, and the planner chooses its own clearance from them. The grid's rows count from the bottom, as in every ROS tool; the CAD counts rows from the top, so the CAD tool flips them.
+
+**The grid covers the maze area, not the whole board.** The board is larger: the ArUco markers sit at y = ±0.179 m (`maze_perception/config/perception.yaml`), outside the grid. Size the grid from the maze area. It matches perception's rectified image `/perception/board_image` (the same ±0.15 m square at 2 px/mm), so each 5 mm cell is a 10 × 10 px block of that image.
+
+**The goal is given, not detected.** Start and goal come from the level's CAD (`maze_CAD/scripts/levels.py`); the ArUco board pose places them in the image. The green ring around the goal pocket (#9) is only a visual cue: perception may check that it is where the CAD says, but the published `goal` is the CAD value.
 
 **Rate:** once per maze, after the map is built. Published again only if the map changes (the planner then replans).
 
@@ -104,8 +108,6 @@ start: {x: -0.12, y: 0.12, z: 0.0}
 goal: {x: 0.12, y: -0.072, radius: 0.015}
 ```
 
-**TODO (Zhuoren):** is the goal detected in the image or given from config (#9)?
-
 ---
 
 ## Contract 2: Ball state
@@ -122,25 +124,27 @@ goal: {x: 0.12, y: -0.072, radius: 0.015}
 # BallState.msg
 std_msgs/Header header   # stamp = capture time of the camera image this came from (not publish time)
                          # frame_id = "maze_board"
-float64 x                # ball center projected on the floor plane (z = 0), m
+float64 x                # ball center in maze_board, m (its z = ball radius is dropped)
 float64 y                # m
 float64 vx               # m/s, from the Kalman filter
 float64 vy               # m/s
 float64[4] position_covariance   # 2x2 [xx, xy, yx, yy], m^2; all zeros if unknown
-bool tracking_ok         # false = ball not detected recently; x, y, vx, vy are the filter's prediction
+bool tracking_ok         # false = ball or board not found in this frame; x, y, vx, vy are the filter's prediction
 ```
 
 **Rate:** one message per camera frame. About 60 Hz on the robot, 56–62.5 Hz in the sim.
 
-**Timing:** `header.stamp` is the image capture time, so a controller can see how old the state is and predict forward to compensate camera delay (proposal: "Kalman filter estimates velocity and compensates for delay").
+**Timing:** the message is the state at `header.stamp`, the image capture time. A controller that wants the present state predicts forward itself: `x + vx * (now - stamp)` (proposal: "Kalman filter estimates velocity and compensates for delay"). Perception logs the capture-to-publish latency, so we know how big the gap is.
+
+**Ball center, not floor point:** the center is one ball radius above the floor. The tracker solves for the center at z = r in `maze_board`; intersecting the camera ray with z = 0 instead would be off by a few mm on a tilted board.
 
 **QoS:** best effort, keep last 1. Old ball states are useless; only the newest matters. (`board_node.py` uses the same `SENSOR_QOS`.)
 
 **Edge cases:**
 
-- Ball not detected in a frame: still publish, with the filter's prediction and `tracking_ok = false`.
-- `tracking_ok` false for more than 0.2 s: controllers command a level board and the run stops (proposal: "predict briefly, then stop the trial if tracking remains lost").
-- Board not found (fewer than 3 ArUco markers): no ball state can be computed; publish nothing. Subscribers treat "no message for 0.1 s" the same as `tracking_ok = false`.
+- Ball not detected, or board not found (fewer than 3 ArUco markers): still publish, with the filter's prediction and `tracking_ok = false`.
+- One rule for subscribers: `tracking_ok` false for more than `tracking_timeout` (0.2 s, about 12 frames at 60 Hz; a config value, not a constant) → command a level board and stop the run (proposal: "predict briefly, then stop the trial if tracking remains lost").
+- No message for `tracking_timeout`: the tracker has died; same reaction.
 
 **How to check:** in the sim, convert `/sim/ball/pose` (world frame) into `maze_board` using `/sim/board/pose`; `x, y` must be within a few mm (#23's done-when).
 
@@ -155,8 +159,6 @@ vy: 0.0
 position_covariance: [1.0e-6, 0.0, 0.0, 1.0e-6]
 tracking_ok: true
 ```
-
-**TODO (Zhuoren):** edit this contract to match the ball tracker; confirm the 0.2 s timeout and who compensates the camera delay.
 
 ---
 
@@ -226,8 +228,6 @@ corridors:
 pose_corridor: [0, 0, 1]
 ```
 
-**TODO (Steven):** confirm `pid_node` reads `/maze/path` as a `nav_msgs/Path`.
-
 **TODO:** set the ball radius for the corridor clearance once the real ball is bought (sim: 7 mm).
 
 ---
@@ -263,7 +263,7 @@ float64 tilt_y           # rad
 
 **Limits and edge cases:**
 
-- Both sides clamp: the controller to its own `max_tilt` and tilt-rate limits, arm control again to its hard limits (safety). Default `max_tilt` = 0.087 rad (5°) until the grip test (#9) confirms it.
+- Both sides clamp: the controller to its own `max_tilt` and tilt-rate limits, arm control again to its hard limits (safety). Hard limits in arm control: 0.087 rad (5°) tilt, revisited after the grip test (#9), and 0.5 rad/s tilt rate. The controller stays below them so it never hits the clamp, e.g. 0.3 rad/s. All of these are config values and will be updated after system ID (#12).
 - No command for 200 ms: arm control stops the arm (zero joint velocities) and logs a warning, the same timeout as the PID watchdog (#11, #25).
 - `tilt_state` comes from forward kinematics, not from `/perception/board_pose`, so it does not wait on the camera.
 
@@ -277,12 +277,9 @@ tilt_x: 0.035
 tilt_y: -0.010
 ```
 
-**TODO (Chelsea):** confirm the 0.087 rad hard limit and the tilt-rate limit.
-
-**TODO (Steven):** confirm the PID uses this sign.
-
 ---
 
 ## Changelog
 
 - v0 (2026-11-12): first draft. Contracts 1–4, `maze_interfaces` messages, CAD map tool.
+- v0 (2026-11-18): review on #31. Contract 1: goal from CAD, grid = maze area. Contract 2: one `tracking_timeout` (0.2 s), publish a prediction when the board is lost, ball center at z = r, controller predicts forward from `header.stamp`. Contract 4: hard limits 5° and 0.5 rad/s. Confirmed by Steven: `/maze/path` and the tilt sign.

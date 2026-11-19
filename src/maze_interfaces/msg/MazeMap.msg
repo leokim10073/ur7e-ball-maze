@@ -7,7 +7,7 @@ string source                 # where it came from: "cad:L1", "perception", ...
 
 nav_msgs/OccupancyGrid walls  # 0 = free floor, 100 = wall or outside the outer walls, -1 = unknown
                               # (the planner treats -1 as wall). Holes are NOT in the grid.
-                              # Default: resolution 0.005 m, 60 x 60 cells over the 300 x 300 mm plate,
+                              # Default: resolution 0.005 m, 60 x 60 cells over the 300 x 300 mm maze area,
                               # info.origin = the grid's lower-left corner (-0.15, -0.15, 0) in maze_board.
                               # Row 0 = the -y (bottom) edge; cell (row, col) = data[row * width + col];
                               # cell center x = origin.x + (col + 0.5) * resolution, y likewise with row.
@@ -15,4 +15,5 @@ nav_msgs/OccupancyGrid walls  # 0 = free floor, 100 = wall or outside the outer 
 
 Circle[] holes                # trap holes the ball must not enter (L1: none). Not the goal.
 geometry_msgs/Point start     # where the ball starts, z = 0, m
-Circle goal                   # goal pocket: the run succeeds when the ball drops in
+Circle goal                   # goal pocket, from the level's CAD (not detected): the run succeeds
+                              # when the ball drops in
