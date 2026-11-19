@@ -3,6 +3,10 @@
 The ROS node feeds it ``on_path`` / ``on_state`` from its subscriptions and
 calls ``update`` from a 60 Hz timer. Tests drive it the same way with
 simulated time.
+
+Tracking loss (contract 2 in docs/interfaces.md): no good ball state for
+``state_timeout`` during a run levels the board and stops the run. It stays
+stopped, even if states come back, until a new path starts the next run.
 """
 
 import numpy as np
@@ -23,6 +27,7 @@ class PidPathController:
         self.t_last = None
         self.target = None
         self.status = 'no_state'
+        self.stopped = False
         self._raw_path = None
 
     @classmethod
@@ -52,6 +57,7 @@ class PidPathController:
         self._raw_path = pts
         self.tracker.set_path(pts)
         self.pid.reset()
+        self.stopped = False          # a new path starts a new run
         return True
 
     def on_state(self, t, pos, vel):
@@ -66,7 +72,13 @@ class PidPathController:
         dt = min(max(dt, 0.0), 2.0 * nominal)   # bound the step after a stall
         self.t_last = t
 
-        if self.t_state is None:
+        if self.t_state is not None and t - self.t_state > self.state_timeout \
+                and self.tracker.has_path:
+            self.stopped = True       # tracking lost during a run: stop it
+
+        if self.stopped:
+            self.status = 'stopped'
+        elif self.t_state is None:
             self.status = 'no_state'
         elif t - self.t_state > self.state_timeout:
             self.status = 'timeout'

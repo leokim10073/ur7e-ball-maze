@@ -288,7 +288,7 @@ src/maze_control/
 
 ```bash
 colcon build && source install/setup.bash
-ros2 launch maze_control pid.launch.py
+ros2 launch maze_control pid.launch.py use_sim_time:=true   # false (default) on the robot
 ```
 
 | Topic | Type | Notes |
@@ -299,7 +299,9 @@ ros2 launch maze_control pid.launch.py
 
 Board frame as in [Perception](#perception): origin at the plate center, +x right, +y up seen from the camera. θy > 0 rolls the ball to +x and θx > 0 rolls it to −y; both signs are parameters (`sign.*`).
 
-[`config/pid.yaml`](src/maze_control/config/pid.yaml) holds every gain and limit: tilt ±5° and 30°/s per axis, look-ahead 5 cm, stop advancing within 2 cm of the goal, tilt back to 0 (rate limited) after 200 ms without `/ball/state`.
+[`config/pid.yaml`](src/maze_control/config/pid.yaml) holds every gain and limit: tilt 0.08 rad (4.6°) and 0.3 rad/s per axis, below arm control's hard limits of 0.087 rad and 0.5 rad/s ([contract 4](docs/interfaces.md)); look-ahead 5 cm; stop advancing within 2 cm of the goal.
+
+Tracking loss ([contract 2](docs/interfaces.md)): states with `tracking_ok = false` are ignored. After 200 ms without a good state during a run, the board tilts back to 0 (rate limited) and the run stops (`status: stopped`). It stays stopped when the ball is found again; only a new path on `/maze/path` starts the next run.
 
 ### PID
 
@@ -316,4 +318,4 @@ cd src/maze_control && python3 -m pytest test
 python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
 ```
 
-`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits and the timeout. `test_path_tracker.py` covers the shared tracker.
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker.

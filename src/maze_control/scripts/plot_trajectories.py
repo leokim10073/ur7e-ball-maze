@@ -87,7 +87,7 @@ def main():
         ax.set_ylabel('tilt [deg]'), ax.grid(color=GRID, lw=0.6)
         if col == 0:
             ax.legend(loc='upper right', frameon=False, fontsize=8, ncol=2)
-            ax.text(0.01, max_tilt, f' ±{max_tilt:g}° limit', va='bottom', color=INK2,
+            ax.text(0.01, max_tilt, f' ±{max_tilt:.1f}° limit', va='bottom', color=INK2,
                     fontsize=7.5, transform=ax.get_yaxis_transform())
 
         # Row 3: distance to goal and cross-track error

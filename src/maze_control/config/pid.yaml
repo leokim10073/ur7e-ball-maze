@@ -15,9 +15,11 @@ maze_pid_controller:
     # (contract 4): tilt_x > 0 accelerates the ball towards +x, tilt_y > 0
     # towards +y. The PID's u is that tilt, so no sign parameters are needed.
 
+    # Kept below arm control's hard limits (contract 4: 0.087 rad, 0.5 rad/s)
+    # so the arm's clamp never acts.
     limits:
-      max_tilt: 0.0872665         # per axis [rad] (5 deg)
-      max_rate: 0.5235988         # per axis [rad/s] (30 deg/s)
+      max_tilt: 0.08              # per axis [rad] (4.6 deg)
+      max_rate: 0.3               # per axis [rad/s] (17 deg/s)
 
     # u = kp*e - kd*v + ki*int(e), u in rad, e in m, v in m/s (from the KF)
     pid:
@@ -34,4 +36,5 @@ maze_pid_controller:
       search_back: 0.02           # projection window behind progress [m]
 
     watchdog:
-      state_timeout: 0.2          # no /ball/state for this long -> tilt to 0 [s]
+      state_timeout: 0.2          # contract 2's tracking_timeout: no good /ball/state for
+                                  # this long -> tilt to 0 and stop the run until a new path [s]

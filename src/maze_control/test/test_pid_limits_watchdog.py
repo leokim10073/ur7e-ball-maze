@@ -55,24 +55,52 @@ def test_tracking_loss_returns_to_zero(run, pid_params):
 
     before = (t > lost_at - 0.2) & (t <= lost_at + timeout)
     assert np.abs(cmd[before]).max() > np.radians(0.5), 'should still be tilting'
-    assert all(s != 'timeout' for s in log['status'][t <= lost_at + timeout])
-    assert all(s == 'timeout' for s in log['status'][t > lost_at + timeout + 1e-9])
+    assert all(s != 'stopped' for s in log['status'][t <= lost_at + timeout])
+    assert all(s == 'stopped' for s in log['status'][t > lost_at + timeout + 1e-9])
 
     zero = t > lost_at + timeout + ramp + 2.0 / pid_params['rate_hz']
     assert np.all(cmd[zero] == 0.0), 'tilt must be exactly 0 after the ramp'
 
 
-def test_recovers_when_states_resume(pid_params):
+def test_stays_stopped_until_new_path(pid_params):
+    """Contract 2: tracking lost for state_timeout stops the run; states
+    coming back do not restart it, only a new path does."""
     ctrl = PidPathController.from_params(pid_params)
     ctrl.on_path([[0.1, 0.0]])
     dt = 1.0 / pid_params['rate_hz']
     ctrl.on_state(0.0, (0.0, 0.0), (0.0, 0.0))
     for k in range(60):                     # 1 s without new states
         ctrl.update(k * dt)
-    assert ctrl.status == 'timeout'
+    assert ctrl.status == 'stopped'
     assert np.allclose(ctrl.update(60 * dt), 0.0)
-    ctrl.on_state(61 * dt, (0.0, 0.0), (0.0, 0.0))
-    ctrl.update(61 * dt)
+
+    for k in range(61, 121):                # states are back: still stopped
+        ctrl.on_state(k * dt, (0.0, 0.0), (0.0, 0.0))
+        assert np.all(ctrl.update(k * dt) == 0.0)
+        assert ctrl.status == 'stopped'
+
+    assert not ctrl.on_path([[0.1, 0.0]])   # same path republished: no restart
+    ctrl.on_state(121 * dt, (0.0, 0.0), (0.0, 0.0))
+    ctrl.update(121 * dt)
+    assert ctrl.status == 'stopped'
+
+    assert ctrl.on_path([[0.0, 0.1]])       # new path: new run
+    ctrl.on_state(122 * dt, (0.0, 0.0), (0.0, 0.0))
+    ctrl.update(122 * dt)
+    assert ctrl.status == 'tracking'
+
+
+def test_no_stop_before_a_run(pid_params):
+    """A missing tracker before any path is not a stopped run."""
+    ctrl = PidPathController.from_params(pid_params)
+    dt = 1.0 / pid_params['rate_hz']
+    ctrl.on_state(0.0, (0.0, 0.0), (0.0, 0.0))
+    for k in range(60):
+        ctrl.update(k * dt)
+    assert ctrl.status == 'timeout'
+    ctrl.on_path([[0.1, 0.0]])
+    ctrl.on_state(60 * dt, (0.0, 0.0), (0.0, 0.0))
+    ctrl.update(60 * dt)
     assert ctrl.status == 'tracking'
 
 
