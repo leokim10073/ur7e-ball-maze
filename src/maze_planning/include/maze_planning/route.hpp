@@ -36,4 +36,17 @@ std::vector<std::array<int, 2>> shortcut_cells(
   const Grid & grid, const std::vector<double> & clearance, const std::vector<uint8_t> & blocked,
   const std::vector<std::array<int, 2>> & cells, const PlannerParams & params);
 
+// Segments {r0, c0, r1, c1} between consecutive vertices, each split at the middle cell of its
+// line, recursively, until the box spanned by its two end cells has no blocked cell.
+// Consecutive segments share an end cell.
+std::vector<std::array<int, 4>> split_segments(
+  const Grid & grid, const std::vector<uint8_t> & blocked,
+  const std::vector<std::array<int, 2>> & vertices);
+
+// The box spanned by cells (r0, c0) and (r1, c1), grown one row or column at a time, round robin
+// (+x, +y, -x, -y), while the new row or column is all allowed and inside the grid. Its bounds
+// are the centers of the outermost cells. The starting box must be free.
+Corridor grow_corridor(
+  const Grid & grid, const std::vector<uint8_t> & blocked, int r0, int c0, int r1, int c1);
+
 }  // namespace maze_planning
