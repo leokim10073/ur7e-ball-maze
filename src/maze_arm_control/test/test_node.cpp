@@ -219,10 +219,18 @@ TEST_F(NodeTest, StartsTracksAndStopsOnTimeout)
   EXPECT_EQ(arm->qdot, Joints::Zero());
   EXPECT_EQ(node->phase(), TiltControlNode::Phase::kRunning);
 
-  // commands resume from where the arm is, without a jump
-  const Joints q_stop = arm->q;
-  run(0.02, Eigen::Vector2d(0.035, -0.02));
-  EXPECT_LT((arm->q - q_stop).cwiseAbs().maxCoeff(), 1e-3);
+  // the stopped arm drifts 1.7 deg of tilt_x about the board center; when commands resume the board
+  // eases back (acceleration-limited reference and joints, board-rate cap) instead of jumping
+  {
+    Eigen::Matrix<double, 6, 1> twist = Eigen::Matrix<double, 6, 1>::Zero();
+    twist.tail<3>() = kin.fk_board(arm->q).linear() * Eigen::Vector3d(0, 0.03, 0);  // about board +y
+    const auto J = kin.jacobian_board(arm->q);
+    arm->q += J.colPivHouseholderQr().solve(twist);
+  }
+  const Eigen::Vector2d before = maze_arm_control::tilt_of(home.linear(), kin.fk_board(arm->q).linear());
+  run(0.03, Eigen::Vector2d(0.035, -0.02));
+  const Eigen::Vector2d after = maze_arm_control::tilt_of(home.linear(), kin.fk_board(arm->q).linear());
+  EXPECT_LT((after - before).cwiseAbs().maxCoeff(), 0.005);
 }
 
 TEST_F(NodeTest, IgnoresNonFiniteCommand)
@@ -274,6 +282,35 @@ TEST_F(NodeTest, SimResetResyncsWithoutHomeCheck)
   const double off = (kin.fk_board(arm->q).translation() -
     kin.fk_board(test_support::home_joints()).translation()).norm();
   EXPECT_LT(off, 0.0005);  // pulled back to home
+}
+
+TEST_F(NodeTest, LostServiceReplyFails)
+{
+  // a controller manager that takes the request and never answers: no silent hang in start-up
+  start(test_support::home_joints());
+  exec.remove_node(arm);
+  arm.reset();  // services gone with the arm: replaced by ones that never reply
+  auto silent = std::make_shared<rclcpp::Node>("silent_cm");
+  std::vector<std::shared_ptr<rmw_request_id_t>> held;
+  auto list = silent->create_service<ListControllers>(
+    "/controller_manager/list_controllers",
+    [&held](std::shared_ptr<rmw_request_id_t> id, const ListControllers::Request::SharedPtr) {held.push_back(id);});
+  exec.add_node(silent);
+  auto js_pub = helper->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+  const Joints q = test_support::home_joints();
+  const auto end = std::chrono::steady_clock::now() + 6.5s;
+  while (std::chrono::steady_clock::now() < end && node->phase() != TiltControlNode::Phase::kFailed) {
+    sensor_msgs::msg::JointState js;
+    js.header.stamp = helper->now();
+    js.name = maze_arm_control::kUrJoints;
+    js.position.assign(q.data(), q.data() + 6);
+    js_pub->publish(js);
+    exec.spin_some(1ms);
+    std::this_thread::sleep_for(2ms);
+  }
+  EXPECT_FALSE(held.empty());
+  EXPECT_EQ(node->phase(), TiltControlNode::Phase::kFailed);
+  exec.remove_node(silent);
 }
 
 TEST_F(NodeTest, HaltsWhenVelocityControllerGoesAway)

@@ -107,3 +107,7 @@ Steps: write tests -> run in distrobox -> plot -> commit.
 - `/sim/reset_done`: re-check the controllers and resync, no new home check. Switching to the velocity controller
   makes the sim arm droop ~5 mm / 0.6 deg, and a reset with the velocity controller active leaves the arm where it
   was; a home check there refused to run. The home check stays at first start.
+- After the whole-branch review: the reference starts inside max_tilt on a resync; the board's angular velocity
+  is capped at max_rate about each board axis (the twist cap alone allowed 1 rad/s while correcting a large
+  error); a controller_manager reply later than 5 s fails start-up (or is retried while running) instead of
+  hanging; a stale speed scaling value (> 1 s) holds the arm; zeros are flushed before exit.

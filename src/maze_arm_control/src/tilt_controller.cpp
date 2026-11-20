@@ -43,6 +43,14 @@ Joints TiltController::step(
   twist.tail<3>() = p_.k_rot * e_R + w_ff;
   diag_.twist_capped = cap_norm(twist.head<3>(), p_.max_linear_speed);
   diag_.twist_capped |= cap_norm(twist.tail<3>(), p_.max_angular_speed);
+  // the tilt-rate limit holds on the board itself, not only on the reference: a large tilt error
+  // (after a reset, say) is corrected no faster than max_tilt_rate about either board axis
+  const Eigen::Vector3d w_board = R_d.transpose() * twist.tail<3>();
+  const double over = w_board.head<2>().cwiseAbs().maxCoeff() / p_.max_tilt_rate;
+  if (over > 1.0) {
+    twist.tail<3>() /= over;
+    diag_.twist_capped = true;
+  }
 
   const Jacobian J = kin_.jacobian_board(q);
   const Eigen::JacobiSVD<Jacobian> svd(J);

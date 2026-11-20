@@ -1,7 +1,9 @@
 // tilt_control: the node, with its own SIGINT handling so the last thing it sends is zero velocities
 // (the velocity controller keeps the last command it got).
 #include <atomic>
+#include <chrono>
 #include <csignal>
+#include <thread>
 
 #include "tilt_control_node.hpp"
 
@@ -31,7 +33,12 @@ int main(int argc, char ** argv)
   }
   const bool failed = node->failed();
   if (rclcpp::ok()) {
-    for (int i = 0; i < 3; ++i) {node->stop();}
+    // let the zeros go out before the context goes away
+    for (int i = 0; i < 5; ++i) {
+      node->stop();
+      exec.spin_some(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     rclcpp::shutdown();
   }
   return failed ? 1 : 0;

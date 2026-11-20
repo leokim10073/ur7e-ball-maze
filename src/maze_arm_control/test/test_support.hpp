@@ -64,6 +64,7 @@ inline maze_arm_control::ControllerParams controller_params()
   c.lambda_max = p["dls"]["lambda_max"].as<double>();
   c.max_linear_speed = p["twist_cap"]["linear"].as<double>();
   c.max_angular_speed = p["twist_cap"]["angular"].as<double>();
+  c.max_tilt_rate = p["limits"]["max_rate"].as<double>();
   c.max_joint_speed = vec<6>(p["joint_limits"]["max_speed"]);
   c.max_joint_accel = vec<6>(p["joint_limits"]["max_accel"]);
   return c;

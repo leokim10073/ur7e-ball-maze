@@ -129,6 +129,27 @@ TEST(ControllerLoop, TwistIsCapped)
   EXPECT_GT(v.z(), 0.0);
 }
 
+TEST(ControllerLoop, BoardRateCappedPerAxis)
+{
+  // a large tilt error (e.g. after a sim reset that moved the board 3 deg): the board turns no faster
+  // than the 0.5 rad/s tilt-rate limit about either board axis
+  const auto kin = test_support::sim_kinematics();
+  auto cp = test_support::controller_params();
+  cp.max_joint_accel.setConstant(1e9);
+  const Joints q = test_support::home_joints();
+  const Eigen::Isometry3d home = kin.fk_board(q);
+  TiltController ctrl(kin, cp, home);
+  for (const Eigen::Vector2d & tilt : {Eigen::Vector2d(0.06, 0.0), Eigen::Vector2d(0.0, -0.06),
+      Eigen::Vector2d(0.06, 0.06)})
+  {
+    ctrl.reset();
+    const Joints qd = ctrl.step(q, tilt, {0, 0}, kDt);
+    const Eigen::Vector3d w_board = home.linear().transpose() * (kin.jacobian_board(q) * qd).tail<3>();
+    EXPECT_LE(w_board.head<2>().cwiseAbs().maxCoeff(), cp.max_tilt_rate + 1e-6) << tilt.transpose();
+    EXPECT_GT(w_board.head<2>().cwiseAbs().maxCoeff(), 0.9 * cp.max_tilt_rate) << tilt.transpose();
+  }
+}
+
 TEST(HomeCheck, AcceptsAndRejects)
 {
   Eigen::Isometry3d home = Eigen::Isometry3d::Identity();

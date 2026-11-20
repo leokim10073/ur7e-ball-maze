@@ -63,6 +63,8 @@ private:
   void on_list(const controller_manager_msgs::srv::ListControllers::Response & res);
   void start_running();
   void poll_controller();
+  uint64_t begin_request();
+  bool end_request(uint64_t id);  // false for a reply to an expired request
   void resync(const char * why);
   void fail(const std::string & why);
   void publish_velocity(const Joints & qdot);
@@ -86,11 +88,14 @@ private:
 
   Phase phase_ = Phase::kWaitState;
   bool request_pending_ = false;
+  double request_sent_ = 0.0;       // steady time of the pending controller_manager request
+  uint64_t request_id_ = 0;
   bool commanding_ = false;  // last cycle sent a control command (not zeros from the watchdog)
   std::optional<Joints> q_;
   std::optional<rclcpp::Time> q_stamp_;
   std::optional<Eigen::Vector2d> last_cmd_;
   std::optional<double> speed_scaling_;
+  double speed_scaling_received_ = 0.0;
   std::optional<double> state_received_;  // steady time of the last joint state
   double last_poll_ = 0.0;
   bool warned_ = false;  // the watchdog warning for the current stop was logged

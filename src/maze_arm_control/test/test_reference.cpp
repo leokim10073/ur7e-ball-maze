@@ -125,3 +125,17 @@ TEST(Reference, FollowsARampWithLittleLag)
   const double tau = test_support::reference_params().smoothing_tau;
   EXPECT_LT(max_lag, 0.3 * (tau + 1.0 / 60.0) + 5e-4);
 }
+
+TEST(Reference, ResetOutsideTheLimitStartsInsideIt)
+{
+  // the arm can sit past max_tilt (a droop, an overshoot): the reference must not start there and then
+  // jump back inside at more than max_rate
+  const auto p = test_support::reference_params();
+  ReferenceShaper ref(p);
+  ref.reset({0.087 + 0.0105, -0.2});
+  EXPECT_LE(ref.value().cwiseAbs().maxCoeff(), p.max_tilt);
+  for (int i = 0; i < 200; ++i) {
+    ref.step(kDt);
+    EXPECT_LE(ref.rate().cwiseAbs().maxCoeff(), p.max_rate + 1e-9) << i;
+  }
+}

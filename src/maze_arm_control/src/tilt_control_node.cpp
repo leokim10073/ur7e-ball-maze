@@ -18,6 +18,8 @@ const std::vector<std::string> kUrJoints = {
 namespace
 {
 constexpr double kPollPeriod = 1.0;   // s, how often the velocity controller is checked while running
+constexpr double kServiceTimeout = 5.0;  // s, a controller_manager reply later than this counts as lost
+constexpr double kScalingTimeout = 1.0;  // s, a speed scaling value older than this is not trusted
 constexpr double kMaxStepDt = 0.02;   // s, a longer gap between joint states is not integrated over
 constexpr double kDeg = M_PI / 180.0;
 
@@ -104,6 +106,7 @@ TiltControlNode::TiltControlNode(const rclcpp::NodeOptions & options)
   cp.lambda_max = required<double>("dls.lambda_max");
   cp.max_linear_speed = required<double>("twist_cap.linear");
   cp.max_angular_speed = required<double>("twist_cap.angular");
+  cp.max_tilt_rate = rp.max_rate;
   cp.max_joint_speed = to_vec<6>(required<DV>("joint_limits.max_speed"), "joint_limits.max_speed");
   cp.max_joint_accel = to_vec<6>(required<DV>("joint_limits.max_accel"), "joint_limits.max_accel");
   const double cmd_timeout = required<double>("watchdog.command_timeout");
@@ -139,7 +142,10 @@ TiltControlNode::TiltControlNode(const rclcpp::NodeOptions & options)
   use_speed_scaling_ = !topic_scaling.empty();
   if (use_speed_scaling_) {
     scaling_sub_ = create_subscription<std_msgs::msg::Float64>(
-      topic_scaling, rclcpp::QoS(1), [this](const std_msgs::msg::Float64 & m) {speed_scaling_ = m.data;});
+      topic_scaling, rclcpp::QoS(1), [this](const std_msgs::msg::Float64 & m) {
+        speed_scaling_ = m.data;
+        speed_scaling_received_ = now_steady();
+      });
   }
   list_cli_ = create_client<ListControllers>("/controller_manager/list_controllers");
   switch_cli_ = create_client<SwitchController>("/controller_manager/switch_controller");
@@ -160,7 +166,9 @@ Eigen::Vector2d TiltControlNode::measured_tilt() const
 
 bool TiltControlNode::speed_scaling_ok() const
 {
-  return !use_speed_scaling_ || (speed_scaling_ && *speed_scaling_ >= 0.999 * speed_scaling_full_);
+  return !use_speed_scaling_ ||
+         (speed_scaling_ && *speed_scaling_ >= 0.999 * speed_scaling_full_ &&
+         now_steady() - speed_scaling_received_ <= kScalingTimeout);
 }
 
 void TiltControlNode::publish_velocity(const Joints & qdot)
@@ -215,7 +223,7 @@ void TiltControlNode::on_joint_state(const sensor_msgs::msg::JointState & msg)
   const rclcpp::Time stamp(msg.header.stamp, get_clock()->get_clock_type());
   const bool jumped = q_ && joint_jump(*q_, *q, jump_threshold_);
   double dt = 0.0;
-  if (q_stamp_ && q_stamp_->get_clock_type() == stamp.get_clock_type()) {
+  if (q_stamp_) {
     dt = (stamp - *q_stamp_).seconds();
   }
   q_ = q;
@@ -247,6 +255,7 @@ void TiltControlNode::on_joint_state(const sensor_msgs::msg::JointState & msg)
   }
   if (!commanding_) {
     resync("commands resumed");  // start from where the arm stopped
+    commanding_ = true;
   }
   if (!(dt > 0.0) || dt > kMaxStepDt) {
     return;  // first, duplicate or late sample: next one
@@ -285,9 +294,33 @@ void TiltControlNode::fail(const std::string & why)
   RCLCPP_ERROR(get_logger(), "refusing to run: %s", why.c_str());  // main() exits on failed()
 }
 
+uint64_t TiltControlNode::begin_request()
+{
+  request_pending_ = true;
+  request_sent_ = now_steady();
+  return ++request_id_;
+}
+
+bool TiltControlNode::end_request(uint64_t id)
+{
+  if (id != request_id_ || !request_pending_) {
+    return false;  // a reply that already timed out
+  }
+  request_pending_ = false;
+  return true;
+}
+
 void TiltControlNode::on_timer()
 {
   const double t = now_steady();
+  if (request_pending_ && t - request_sent_ > kServiceTimeout) {
+    request_pending_ = false;  // a late reply is dropped by end_request()
+    if (phase_ == Phase::kSwitch) {
+      fail("/controller_manager did not answer within " + std::to_string(kServiceTimeout) + " s");
+      return;
+    }
+    RCLCPP_WARN(get_logger(), "/controller_manager did not answer the controller check; retrying");
+  }
   const bool fresh = state_received_ && t - *state_received_ <= state_timeout_;
   switch (phase_) {
     case Phase::kWaitState:
@@ -359,11 +392,13 @@ void TiltControlNode::request_switch()
     RCLCPP_INFO_THROTTLE(get_logger(), steady_, 5000, "waiting for /controller_manager");
     return;
   }
-  request_pending_ = true;
+  const auto id = begin_request();
   list_cli_->async_send_request(
     std::make_shared<ListControllers::Request>(),
-    [this](rclcpp::Client<ListControllers>::SharedFuture f) {
-      request_pending_ = false;
+    [this, id](rclcpp::Client<ListControllers>::SharedFuture f) {
+      if (!end_request(id)) {
+        return;
+      }
       if (phase_ == Phase::kSwitch) {
         on_list(*f.get());
       }
@@ -399,11 +434,10 @@ void TiltControlNode::on_list(const ListControllers::Response & res)
   }
   req->deactivate_controllers = deactivate;
   req->strictness = SwitchController::Request::STRICT;
-  request_pending_ = true;
+  const auto id = begin_request();
   switch_cli_->async_send_request(
-    req, [this](rclcpp::Client<SwitchController>::SharedFuture f) {
-      request_pending_ = false;
-      if (phase_ != Phase::kSwitch) {
+    req, [this, id](rclcpp::Client<SwitchController>::SharedFuture f) {
+      if (!end_request(id) || phase_ != Phase::kSwitch) {
         return;
       }
       if (!f.get()->ok) {
@@ -430,12 +464,11 @@ void TiltControlNode::poll_controller()
   if (request_pending_ || !list_cli_->service_is_ready()) {
     return;
   }
-  request_pending_ = true;
+  const auto id = begin_request();
   list_cli_->async_send_request(
     std::make_shared<ListControllers::Request>(),
-    [this](rclcpp::Client<ListControllers>::SharedFuture f) {
-      request_pending_ = false;
-      if (phase_ != Phase::kRunning) {
+    [this, id](rclcpp::Client<ListControllers>::SharedFuture f) {
+      if (!end_request(id) || phase_ != Phase::kRunning) {
         return;
       }
       for (const auto & c : f.get()->controller) {

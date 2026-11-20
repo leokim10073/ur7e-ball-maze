@@ -11,7 +11,8 @@ ReferenceShaper::ReferenceShaper(const ReferenceParams & params)
 
 void ReferenceShaper::reset(const Eigen::Vector2d & measured)
 {
-  command_ = filtered_ = value_ = measured;
+  // the arm may sit past max_tilt (a droop, an overshoot); the reference starts inside the limit
+  command_ = filtered_ = value_ = measured.cwiseMax(-p_.max_tilt).cwiseMin(p_.max_tilt);
   rate_.setZero();
   filtered_rate_.setZero();
 }
