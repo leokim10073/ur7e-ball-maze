@@ -86,6 +86,44 @@ TEST(RouteTest, PushedStartInsideFirstCorridor)
   // the recovery region must not be a bare line: a ball 1 mm to either side is still in it
   EXPECT_TRUE(inside(r.corridors[0], {start[0] + 0.001, start[1]}));
   EXPECT_TRUE(inside(r.corridors[0], {start[0] - 0.001, start[1]}));
+  EXPECT_EQ(r.lead_in_corridors, 1u);  // a straight way out stays one box
+}
+
+TEST(RouteTest, BentLeadInCorridors)
+{
+  const Grid g = bent_dead_end();
+  const auto start = cell_center(g, 3, 13);
+  const auto path = plan_grid_path(g, {}, start, goal_at(g, 8, 26));
+  ASSERT_TRUE(path.found);
+  const Route r = build_route(g, {}, path);
+  expect_consistent(r);
+  ASSERT_FALSE(r.points.empty());
+  EXPECT_GE(r.lead_in_corridors, 2u);  // up the dead end, then right over the divider
+  ASSERT_LE(r.lead_in_corridors, r.corridors.size());
+  EXPECT_EQ(r.points.front(), start);
+  EXPECT_TRUE(inside(r.corridors[0], start));
+  for (size_t k = 0; k < r.lead_in_corridors; ++k) {
+    const Corridor & c = r.corridors[k];
+    for (int row = 0; row < g.height; ++row) {
+      for (int col = 0; col < g.width; ++col) {
+        const auto p = cell_center(g, row, col);
+        if (p[0] >= c.x_min - 1e-9 && p[0] <= c.x_max + 1e-9 && p[1] >= c.y_min - 1e-9 && p[1] <= c.y_max + 1e-9) {
+          EXPECT_FALSE(is_obstacle(g.data[static_cast<size_t>(row * g.width + col)]))
+            << "lead-in corridor " << k << " holds wall cell " << row << "," << col;
+        }
+      }
+    }
+  }
+  for (size_t k = 1; k < r.corridors.size(); ++k) {
+    const Corridor & b = r.corridors[k - 1];
+    const Corridor & c = r.corridors[k];
+    EXPECT_TRUE(std::max(b.x_min, c.x_min) <= std::min(b.x_max, c.x_max) + kEps &&
+                std::max(b.y_min, c.y_min) <= std::min(b.y_max, c.y_max) + kEps)
+      << "corridors " << k - 1 << " and " << k << " do not overlap";
+  }
+  for (size_t i = 1; i < r.points.size(); ++i) {
+    EXPECT_LE(dist(r.points[i], r.points[i - 1]), 0.005 + kEps);
+  }
 }
 
 TEST(RouteTest, NotFoundGivesEmpty)
@@ -156,7 +194,6 @@ TEST(RouteTest, L1Properties)
   const auto clearance = clearance_map(f.grid);
   const auto blocked = blocked_cells(f.grid, clearance, f.holes, p);
   auto at = [&](int row, int col) {return static_cast<size_t>(row * f.grid.width + col);};
-  const bool lead_in = blocked[at(path.cells[0][0], path.cells[0][1])];
 
   for (size_t k = 0; k < r.corridors.size(); ++k) {
     const Corridor & c = r.corridors[k];
@@ -166,7 +203,7 @@ TEST(RouteTest, L1Properties)
                   std::max(b.y_min, c.y_min) <= std::min(b.y_max, c.y_max) + kEps)
         << "corridors " << k - 1 << " and " << k << " do not overlap";
     }
-    if (k == 0 && lead_in) {
+    if (k < r.lead_in_corridors) {
       continue;
     }
     for (int row = 0; row < f.grid.height; ++row) {

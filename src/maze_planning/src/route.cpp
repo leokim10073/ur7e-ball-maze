@@ -17,7 +17,7 @@ using Point = std::array<double, 2>;
 struct Piece
 {
   Point from, to;
-  Corridor corridor;
+  uint32_t corridor;  // index into Route::corridors
 };
 
 void include(Corridor & k, const Point & p)
@@ -61,7 +61,7 @@ Route build_route(
     }
   }
 
-  // the lead-in of a pushed ball: leading blocked cells, one straight segment to the first allowed
+  // the lead-in of a pushed ball: its leading blocked cells
   size_t lead = 0;
   while (lead < n && blocked[detail::index(grid, path.cells[lead])]) {
     ++lead;
@@ -73,14 +73,49 @@ Route build_route(
   const Point goal = path.points.back();
   auto center = [&](int r, int c) {return cell_center(grid, r, c);};
 
+  // the lead-in (leading blocked cells and the first allowed one) in boxes of passable cells, each at
+  // whole-cell extent: a pushed ball jitters sideways. Consecutive boxes share a cell, so they overlap.
   std::vector<Piece> pieces;
   if (lead > 0) {
-    std::vector<detail::Cell> box(path.cells.begin(), path.cells.begin() + static_cast<long>(lead + 1));
-    Corridor k = cell_box(grid, box);
-    const double half = 0.5 * grid.resolution;  // whole cells: a pushed ball jitters sideways
-    k = {k.x_min - half, k.x_max + half, k.y_min - half, k.y_max + half};
-    include(k, start);
-    pieces.push_back({start, center(path.cells[lead][0], path.cells[lead][1]), k});
+    const auto passable = detail::passable_cells(grid, holes);
+    const std::vector<detail::Cell> cells(path.cells.begin(), path.cells.begin() + static_cast<long>(lead + 1));
+    auto box_passable = [&](size_t i, size_t j) {
+        int r0 = cells[i][0], r1 = r0, c0 = cells[i][1], c1 = c0;
+        for (size_t k = i; k <= j; ++k) {
+          r0 = std::min(r0, cells[k][0]);
+          r1 = std::max(r1, cells[k][0]);
+          c0 = std::min(c0, cells[k][1]);
+          c1 = std::max(c1, cells[k][1]);
+        }
+        for (int r = r0; r <= r1; ++r) {
+          for (int c = c0; c <= c1; ++c) {
+            if (!passable[detail::index(grid, {r, c})]) {
+              return false;
+            }
+          }
+        }
+        return true;
+      };
+    const double half = 0.5 * grid.resolution;
+    for (size_t i = 0; i + 1 < cells.size(); ) {
+      size_t j = i + 1;  // one step without corner cutting through passable cells: always a passable box
+      while (j + 1 < cells.size() && box_passable(i, j + 1)) {
+        ++j;
+      }
+      Corridor k = cell_box(grid, {cells.begin() + static_cast<long>(i), cells.begin() + static_cast<long>(j + 1)});
+      k = {k.x_min - half, k.x_max + half, k.y_min - half, k.y_max + half};
+      if (i == 0) {
+        include(k, start);
+      }
+      const auto index = static_cast<uint32_t>(route.corridors.size());
+      route.corridors.push_back(k);
+      for (size_t s = i; s < j; ++s) {
+        pieces.push_back({s == 0 ? start : center(cells[s][0], cells[s][1]),
+            center(cells[s + 1][0], cells[s + 1][1]), index});
+      }
+      i = j;
+    }
+    route.lead_in_corridors = static_cast<uint32_t>(route.corridors.size());
   }
   const std::vector<std::array<int, 2>> rest(path.cells.begin() + static_cast<long>(lead), path.cells.end());
   const auto vertices = shortcut_cells(grid, clearance, blocked, rest, params);
@@ -90,16 +125,17 @@ Route build_route(
   }
   for (size_t s = 0; s < segments.size(); ++s) {
     const auto & q = segments[s];
-    Piece piece{center(q[0], q[1]), center(q[2], q[3]),
-      grow_corridor(grid, blocked, q[0], q[1], q[2], q[3])};
+    Piece piece{center(q[0], q[1]), center(q[2], q[3]), static_cast<uint32_t>(route.corridors.size())};
+    Corridor k = grow_corridor(grid, blocked, q[0], q[1], q[2], q[3]);
     if (s == 0 && lead == 0) {
       piece.from = start;
     }
     if (s + 1 == segments.size()) {
       piece.to = goal;
     }
-    include(piece.corridor, piece.from);
-    include(piece.corridor, piece.to);
+    include(k, piece.from);
+    include(k, piece.to);
+    route.corridors.push_back(k);
     pieces.push_back(piece);
   }
 
@@ -119,17 +155,16 @@ Route build_route(
     };
   for (size_t k = 0; k < pieces.size(); ++k) {
     const Piece & piece = pieces[k];
-    route.corridors.push_back(piece.corridor);
     const double length = std::hypot(piece.to[0] - piece.from[0], piece.to[1] - piece.from[1]);
     const int steps = std::max(1, static_cast<int>(std::ceil(length / params.point_spacing - 1e-9)));
     if (k == 0) {
-      add(piece.from, 0);
+      add(piece.from, piece.corridor);
     }
     for (int j = 1; j <= steps; ++j) {
       const double t = static_cast<double>(j) / steps;
       add(j == steps ? piece.to :
         Point{piece.from[0] + t * (piece.to[0] - piece.from[0]), piece.from[1] + t * (piece.to[1] - piece.from[1])},
-        static_cast<uint32_t>(k));
+        piece.corridor);
     }
   }
   return route;

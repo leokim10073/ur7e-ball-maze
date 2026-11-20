@@ -25,6 +25,8 @@ struct Route
   std::vector<double> arc_length;             // per point, from 0
   std::vector<Corridor> corridors;            // path order, consecutive ones overlap
   std::vector<uint32_t> pose_corridor;        // per point, index into corridors
+  uint32_t lead_in_corridors = 0;             // how many leading corridors cover a pushed ball's way
+                                              // out (not wall-clearance safe); not published
 };
 
 // Vertices of the straightened path, a subsequence of cells that keeps the first and the last.

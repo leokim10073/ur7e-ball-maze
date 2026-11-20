@@ -65,6 +65,19 @@ inline Grid dead_end()
   return g;
 }
 
+// the dead end with a lid: a wall over it at row 17 (columns 7-20) and a shorter divider (column 14
+// rows 0-12), so the way out turns right through the 20 mm gap above the divider into the open room
+// on the right (columns 15-32, rows 1-16)
+inline Grid bent_dead_end()
+{
+  Grid g = free_grid(34, 30);
+  wall_border(g);
+  wall_col(g, 7, 0, 17);
+  wall_col(g, 14, 0, 12);
+  wall_block(g, 17, 17, 7, 20);
+  return g;
+}
+
 inline Circle goal_at(const Grid & g, int row, int col)
 {
   const auto c = cell_center(g, row, col);
