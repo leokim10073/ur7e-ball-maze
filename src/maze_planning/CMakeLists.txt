@@ -14,6 +14,7 @@ add_library(maze_planning_core STATIC
   src/clearance.cpp
   src/blocked.cpp
   src/grid_planner.cpp
+  src/shortcut.cpp
 )
 target_compile_features(maze_planning_core PUBLIC cxx_std_17)
 set_target_properties(maze_planning_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -41,6 +42,14 @@ if(BUILD_TESTING)
   ament_add_gtest(test_l1 test/test_l1.cpp)
   target_link_libraries(test_l1 maze_planning_core yaml-cpp)
   target_compile_definitions(test_l1 PRIVATE MAZE_PLANNING_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
+
+  # tests that also use the library's internal helpers (src/geometry.hpp) and the L1 fixture
+  foreach(t test_shortcut)
+    ament_add_gtest(${t} test/${t}.cpp)
+    target_link_libraries(${t} maze_planning_core yaml-cpp)
+    target_include_directories(${t} PRIVATE src)
+    target_compile_definitions(${t} PRIVATE MAZE_PLANNING_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
+  endforeach()
 endif()
 
 ament_package()

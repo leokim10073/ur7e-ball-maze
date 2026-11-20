@@ -11,51 +11,14 @@
 
 #include "maze_planning/blocked.hpp"
 #include "maze_planning/clearance.hpp"
+#include "geometry.hpp"
 
 namespace maze_planning
 {
 
-namespace
-{
-
-using Cell = std::array<int, 2>;  // {row, col}
-
-std::optional<Cell> cell_of(const Grid & g, double x, double y)
-{
-  const double col = std::floor((x - g.origin_x) / g.resolution);
-  const double row = std::floor((y - g.origin_y) / g.resolution);
-  if (!(row >= 0 && row < g.height && col >= 0 && col < g.width)) {
-    return std::nullopt;
-  }
-  return Cell{static_cast<int>(row), static_cast<int>(col)};
-}
-
-// the cells of a straight (Bresenham) line from a to b, both included
-std::vector<Cell> line_cells(Cell a, Cell b)
-{
-  std::vector<Cell> cells;
-  const int dr = std::abs(b[0] - a[0]), dc = std::abs(b[1] - a[1]);
-  const int sr = a[0] < b[0] ? 1 : -1, sc = a[1] < b[1] ? 1 : -1;
-  int err = dc - dr;
-  Cell p = a;
-  while (true) {
-    cells.push_back(p);
-    if (p == b) {
-      return cells;
-    }
-    const int e2 = 2 * err;
-    if (e2 > -dr) {
-      err -= dr;
-      p[1] += sc;
-    }
-    if (e2 < dc) {
-      err += dc;
-      p[0] += sr;
-    }
-  }
-}
-
-}  // namespace
+using detail::Cell;
+using detail::cell_of;
+using detail::line_cells;
 
 GridPath plan_grid_path(
   const Grid & grid, const std::vector<Circle> & holes, std::array<double, 2> start,

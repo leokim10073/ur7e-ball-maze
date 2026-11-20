@@ -39,6 +39,9 @@ void validate(const PlannerParams & params)
   if (!(std::isfinite(params.preferred_clearance) && params.preferred_clearance > 0.0)) {
     throw std::invalid_argument("preferred clearance must be finite and > 0");
   }
+  if (!(std::isfinite(params.point_spacing) && params.point_spacing > 0.0)) {
+    throw std::invalid_argument("point spacing must be finite and > 0");
+  }
 }
 
 }  // namespace maze_planning

@@ -34,6 +34,7 @@ struct PlannerParams
   double hole_margin = 0.003;          // keep the ball center this far outside a hole's rim
   double preferred_clearance = 0.020;  // closer than this to a wall costs extra
   double clearance_weight = 2.0;       // how much extra
+  double point_spacing = 0.005;        // route points at most this far apart, m
 };
 
 struct GridPath
@@ -53,7 +54,7 @@ std::array<double, 2> cell_center(const Grid & grid, int row, int col);
 void validate(const Grid & grid);
 
 // throws std::invalid_argument unless ball_radius, the margins and clearance_weight are finite and
-// >= 0 and preferred_clearance is finite and > 0
+// >= 0 and preferred_clearance and point_spacing are finite and > 0
 void validate(const PlannerParams & params);
 
 }  // namespace maze_planning

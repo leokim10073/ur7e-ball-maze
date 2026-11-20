@@ -4,58 +4,12 @@
 #include <stdexcept>
 
 #include "maze_planning/grid_planner.hpp"
+#include "grids.hpp"
 
 using namespace maze_planning;
 
 namespace
 {
-
-Grid free_grid(int width, int height)
-{
-  Grid g;
-  g.width = width;
-  g.height = height;
-  g.resolution = 0.005;
-  g.data.assign(static_cast<size_t>(width * height), 0);
-  return g;
-}
-
-void wall_row(Grid & g, int row)
-{
-  for (int c = 0; c < g.width; ++c) {
-    g.data[static_cast<size_t>(row * g.width + c)] = 100;
-  }
-}
-
-void wall_col(Grid & g, int col, int row_from, int row_to)
-{
-  for (int r = row_from; r <= row_to; ++r) {
-    g.data[static_cast<size_t>(r * g.width + col)] = 100;
-  }
-}
-
-void wall_border(Grid & g)
-{
-  wall_row(g, 0);
-  wall_row(g, g.height - 1);
-  wall_col(g, 0, 0, g.height - 1);
-  wall_col(g, g.width - 1, 0, g.height - 1);
-}
-
-// 40 x 11, walls along rows 0 and 10: rows 4-6 are open to a 25 mm ball
-Grid channel()
-{
-  Grid g = free_grid(40, 11);
-  wall_row(g, 0);
-  wall_row(g, 10);
-  return g;
-}
-
-Circle goal_at(const Grid & g, int row, int col)
-{
-  const auto c = cell_center(g, row, col);
-  return {c[0], c[1], 0.01};
-}
 
 // two open rooms joined by a gap in a wall at column 20, rows gap_from..gap_to
 Grid two_rooms(int gap_from, int gap_to)
