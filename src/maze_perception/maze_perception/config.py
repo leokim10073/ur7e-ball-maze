@@ -1,4 +1,5 @@
-"""perception.yaml: the ArUco board model, the pose and rectification settings, and the ball."""
+"""perception.yaml: the ArUco board model, the pose and rectification settings, the ball, and
+its tracking filter."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,11 +55,22 @@ class BallSettings:
 
 
 @dataclass(frozen=True)
+class TrackingSettings:
+    accel_noise: float  # m/s^2, white acceleration of the constant-velocity model
+    measurement_noise: float  # m, per axis
+    initial_speed: float  # m/s, velocity standard deviation of a new track
+    max_jump: float  # m, beyond the prediction (+ 3 sigma) a measurement is a misdetection
+    max_rejects: int  # misdetections in a row after which the filter restarts from the measurement
+    lost_reset: float  # s without a measurement after which the ball is forgotten
+
+
+@dataclass(frozen=True)
 class PerceptionConfig:
     board: BoardModel
     pose: PoseSettings
     rectified: RectifiedSettings
     ball: BallSettings
+    tracking: TrackingSettings
 
 
 def _pair(raw, key):
@@ -84,6 +96,11 @@ def load_perception_config(path) -> PerceptionConfig:
         fx, fy = _pair(b["floor"][:2], "ball.floor x"), _pair(b["floor"][2:], "ball.floor y")
         ball = BallSettings(radius=float(b["radius"]), floor=(*fx, *fy), not_floor=float(b["not_floor"]),
                             min_score=float(b["min_score"]))
+        k = raw["tracking"]
+        tracking = TrackingSettings(
+            accel_noise=float(k["accel_noise"]), measurement_noise=float(k["measurement_noise"]),
+            initial_speed=float(k["initial_speed"]), max_jump=float(k["max_jump"]),
+            max_rejects=int(k["max_rejects"]), lost_reset=float(k["lost_reset"]))
     except KeyError as e:
         raise ValueError(f"{path}: missing key {e}") from None
     if any(len(c) != 3 for c in markers.values()):
@@ -106,4 +123,9 @@ def load_perception_config(path) -> PerceptionConfig:
         raise ValueError("ball.floor must lie inside the rectified area")
     if min(x1 - x0, y1 - y0) <= 2 * ball.radius:
         raise ValueError("ball.floor is too small for the ball")
-    return PerceptionConfig(board=board, pose=pose, rectified=rect, ball=ball)
+    for key in ("accel_noise", "measurement_noise", "initial_speed", "max_jump", "lost_reset"):
+        if getattr(tracking, key) <= 0:
+            raise ValueError(f"tracking.{key} must be positive")
+    if tracking.max_rejects < 1:
+        raise ValueError("tracking.max_rejects must be at least 1")
+    return PerceptionConfig(board=board, pose=pose, rectified=rect, ball=ball, tracking=tracking)

@@ -33,9 +33,10 @@ STATS_PERIOD_S = 10.0
 # newest frame only: a late image is worth less than the next one
 SENSOR_QOS = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 
+
 class BoardTracker(Node):
-    def __init__(self, **kwargs):
-        super().__init__("board_tracker", **kwargs)
+    def __init__(self, node_name="board_tracker", **kwargs):
+        super().__init__(node_name, **kwargs)
         from ament_index_python.packages import get_package_share_directory
 
         default_cfg = Path(get_package_share_directory("maze_perception")) / "config" / "perception.yaml"
@@ -102,7 +103,11 @@ class BoardTracker(Node):
                     self.last_rectified is None or now - self.last_rectified >= self.rectified_period):
                 self.last_rectified = now
                 self.image_pub.publish(rgb_to_image(rectify(img, pose, self.camera, self.cfg.rectified), msg.header))
+        self._on_frame(msg, img, pose)
         self._stats["busy_s"] += time.monotonic() - t0
+
+    def _on_frame(self, msg: Image, img, pose):
+        """Every camera frame with its board pose (None if not found); for subclasses."""
 
     def _publish_pose(self, header, pose):
         x, y, z, w = pose.quaternion()

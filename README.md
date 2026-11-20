@@ -206,9 +206,9 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that (library only, no node yet). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
+`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that; P4, the ball's state (position, velocity, tracking flag) on `/ball/state` ([contract 2](docs/interfaces.md)). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
 
-The geometry is a plain Python library (`board_pose.py`, no ROS) so the ball finder and the later ball tracker use it directly; `board_tracker` is the ROS node around it.
+The geometry, the ball finder and the filter are plain Python libraries (`board_pose.py`, `ball.py`, `ball_filter.py`, no ROS). `ball_tracker` is the ROS node around them: per camera frame it finds the markers once, then the board pose, the ball and the filtered state. `board_tracker` is the same without the ball, for the board pose alone.
 
 ### Run (inside `maze-sim`, next to the sim)
 
@@ -224,10 +224,11 @@ On the robot, add `use_sim_time:=false`. Look at the rectified board with `ros2 
 | `/perception/board_pose` | `geometry_msgs/PoseStamped` | Board frame in the camera optical frame, stamped with the image; only for frames where the board was found |
 | `/perception/board_image` | `sensor_msgs/Image` | Rectified top-down image of the plate, `rgb8`, 600×600 (2 px/mm), image right = board +x, image up = board +y; 5 Hz (`rectified_rate`) |
 | `/tf` | | `camera_optical_frame` → `maze_board`, so `world` → `maze_board` comes out of TF next to the sim's `/sim/board/pose` |
+| `/ball/state` | `maze_interfaces/BallState` | Contract 2: every camera frame, stamped with the capture time, `maze_board`; best effort, keep last 1 |
 
-The board frame is the sim's and the CAD's: origin at the plate center, z up, z = 0 on the maze floor, handle on −x, m. Every 10 s the node logs frames/s, the share of frames with a board pose, and ms per frame (about 4 ms at 1280×720).
+The board frame is the sim's and the CAD's: origin at the plate center, z up, z = 0 on the maze floor, handle on −x, m. Every 10 s the node logs frames/s, the share of frames with a board pose and with the ball, ms per frame, and the capture-to-publish latency of `/ball/state`.
 
-[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit, the rectified image area, and the ball's size, floor area and thresholds.
+[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit, the rectified image area, the ball's size, floor area and thresholds, and the filter's noise levels.
 
 ### Accuracy
 
@@ -250,7 +251,26 @@ On the sim's own camera image, with the board tilted up to 6° and shifted up to
 
 On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm, 180 random ball positions, half of them against a wall): mean error 0.4–0.6 mm, max 1.8 mm against `/sim/ball/pose`. Ball scores ≥ 0.6; with the ball off the board, the best anything else scores is 0.42 (the gripper's finger over the wall once the board is shifted in the grasp, then wall ends).
 
-Not yet: the node that publishes `/ball/state` (P4, with the Kalman filter); the threshold and `not_floor` need checking on the real board (P6).
+Not yet: the threshold and `not_floor` need checking on the real board (P6).
+
+### Ball state (P4)
+
+`ball_filter.py` is a constant-velocity Kalman filter (state x, y, vx, vy in `maze_board`) run at each image's capture time; `ball_tracker` publishes its state on `/ball/state`, one message per camera frame.
+
+- **Timing (contract 2):** the state is the one at `header.stamp`, the image's capture time; a controller predicts forward to now itself (`x + vx * (now − stamp)`). The node logs how far behind publishing is.
+- **Ball or board not found:** the filter's prediction with `tracking_ok = false`, every frame, and a covariance that grows. After `lost_reset` (1 s) without the ball it forgets it (zeros, all-zero covariance = unknown) rather than extrapolating. Subscribers stop the run after `tracking_timeout` (0.2 s) anyway.
+- **Misdetections:** a measurement more than `max_jump` (2 cm) plus 3σ from the prediction is not used (that frame is `tracking_ok = false`). A gate on distance, not a tight statistical one: a ball stopped by a wall lands a few mm off the prediction and must count. After `max_rejects` (3) in a row the ball really is there (picked up and put back) and the track restarts.
+- **`accel_noise` (1 m/s²) trades steadiness for speed:** the speed error does not depend on how fast the ball goes, so for a slow ball it matters most. With 0.3 mm (1 mm) of per-frame measurement noise:
+
+  | `accel_noise` | speed error at any speed | after a 0.3 m/s wall stop |
+  |---|---|---|
+  | 0.5 | 6 (12) mm/s | settled in 4–6 frames, 3–5 mm past the wall |
+  | **1** | **10 (20) mm/s** | **3–4 frames, 2–3 mm** |
+  | 2 | 16 (33) mm/s | 2–3 frames, 1–2 mm |
+
+  The ball rolls at most ~0.5 m/s (5° tilt, 0.6 m/s², the longest L1 straight); a controller that keeps it at a few cm/s can lower `accel_noise` to 0.5. The real camera's per-frame noise is to be measured in P6.
+
+In the sim (arm tilting the board up to 4° about two wrist joints every 0.7 s, ball rolling into walls and corners at up to 0.15 m/s, 62.5 Hz frames): position error 1.3 mm rms (2.4 mm max), speed error 25 mm/s rms, up to ~0.2 m/s for a frame or two when it hits a wall. Most of the position error is the ball against a wall: there the measurement is ~1.5 mm off the wall (P3 leaves the wall's dark faces out, and with them the ball's outermost millimeter).
 
 ### Tests (inside `maze-sim`)
 
@@ -259,7 +279,7 @@ colcon build && source install/setup.bash
 cd src/maze_perception && python3 -m pytest test
 ```
 
-`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose and the ball against ground truth; `test_node.py` runs `board_tracker` over ROS on a synthetic image.
+`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose, the ball and the ball state of a rolling ball against ground truth; `test_node.py` runs `board_tracker` and `ball_tracker` over ROS on synthetic images.
 
 ## CAD maze map
 

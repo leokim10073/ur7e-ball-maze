@@ -32,3 +32,13 @@ ball:
   floor: [-0.141, 0.141, -0.141, 0.141]   # x_min, x_max, y_min, y_max inside the outer walls, m (CAD, checked by a test)
   not_floor: 20.0                    # CIELAB distance; sim ball 29-60 from the floor, floor noise below
   min_score: 0.5                     # disc minus ring share of not-floor pixels, 0..1; less -> no ball
+
+tracking:
+  # Constant-velocity Kalman filter on the ball measurements (ball_filter.py), at each image's
+  # capture time. /ball/state carries its state; controllers predict forward from the stamp.
+  accel_noise: 1.0                   # m/s^2; lower: steadier speed for a slow ball, slower to follow a wall stop (README)
+  measurement_noise: 0.001           # m per axis (sim: 0.5 mm mean, 1.8 mm worst)
+  initial_speed: 0.3                 # m/s, velocity uncertainty of a new track
+  max_jump: 0.02                     # m beyond the prediction (+ 3 sigma): a misdetection, not used
+  max_rejects: 3                     # misdetections in a row -> restart the track at the measurement
+  lost_reset: 1.0                    # s without the ball -> forget it rather than extrapolate
