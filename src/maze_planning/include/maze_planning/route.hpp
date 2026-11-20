@@ -29,8 +29,9 @@ struct Route
 
 // Vertices of the straightened path, a subsequence of cells that keeps the first and the last.
 // From each vertex the farthest later cell is taken whose straight line has only allowed cells,
-// cuts no corner and stays as far from walls as A* did there: every line cell's clearance is at
-// least min(preferred_clearance, the smallest clearance on the A* cells in between).
+// cuts no corner and stays as far from walls as A* did there: every line cell's clearance, and
+// that of both corner cells at each diagonal step, is at least min(preferred_clearance, the
+// smallest clearance on the A* cells in between).
 // Every cell of cells must be allowed (the caller leaves out the lead-in).
 std::vector<std::array<int, 2>> shortcut_cells(
   const Grid & grid, const std::vector<double> & clearance, const std::vector<uint8_t> & blocked,
@@ -51,8 +52,9 @@ Corridor grow_corridor(
 
 // The route along a planned GridPath: straightened (shortcut_cells), split into free boxes
 // (split_segments), one grown corridor per segment, sampled every point_spacing. A pushed start's
-// lead-in (the path's leading blocked cells) stays one straight segment whose corridor is just
-// its cells' box: the recovery region the ball is in. The first and last corridors also take in
+// lead-in (the path's leading blocked cells) stays one straight segment whose corridor is the
+// full extent of its cells (not cell centers, so it is never a bare line): the recovery region
+// the ball is in. The first and last corridors also take in
 // the exact start and the goal center. A path that was not found, or whose points do not match
 // its cells, gives an empty Route. Throws std::invalid_argument on a bad grid or bad params.
 Route build_route(

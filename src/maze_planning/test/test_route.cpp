@@ -83,6 +83,9 @@ TEST(RouteTest, PushedStartInsideFirstCorridor)
   ASSERT_FALSE(r.points.empty());
   EXPECT_EQ(r.points.front(), start);
   EXPECT_TRUE(inside(r.corridors[r.pose_corridor[0]], start));
+  // the recovery region must not be a bare line: a ball 1 mm to either side is still in it
+  EXPECT_TRUE(inside(r.corridors[0], {start[0] + 0.001, start[1]}));
+  EXPECT_TRUE(inside(r.corridors[0], {start[0] - 0.001, start[1]}));
 }
 
 TEST(RouteTest, NotFoundGivesEmpty)
@@ -180,21 +183,20 @@ TEST(RouteTest, L1Properties)
   for (size_t i = 1; i < path.points.size(); ++i) {
     a_star_length += dist(path.points[i], path.points[i - 1]);
   }
-  for (const auto & c : path.cells) {
+  // how close A* came to a wall: its cells, and the corner cells its diagonal steps cross
+  for (size_t i = 0; i < path.cells.size(); ++i) {
+    const auto & c = path.cells[i];
     a_star_min = std::min(a_star_min, clearance[at(c[0], c[1])]);
+    if (i > 0 && !blocked[at(path.cells[i - 1][0], path.cells[i - 1][1])]) {
+      const auto & b = path.cells[i - 1];
+      a_star_min = std::min({a_star_min, clearance[at(c[0], b[1])], clearance[at(b[0], c[1])]});
+    }
   }
   EXPECT_LE(r.arc_length.back(), a_star_length + 1e-12);
-  // a point on a cell edge or corner (a diagonal step's midpoint) is in every cell it touches
   for (size_t i = 0; i < r.points.size(); ++i) {
-    const double u = (r.points[i][0] - f.grid.origin_x) / f.grid.resolution;
-    const double w = (r.points[i][1] - f.grid.origin_y) / f.grid.resolution;
-    double best = 0.0;
-    for (int col : {static_cast<int>(std::floor(u - 1e-9)), static_cast<int>(std::floor(u + 1e-9))}) {
-      for (int row : {static_cast<int>(std::floor(w - 1e-9)), static_cast<int>(std::floor(w + 1e-9))}) {
-        best = std::max(best, clearance[at(row, col)]);
-      }
-    }
-    EXPECT_GE(best, std::min(p.preferred_clearance, a_star_min) - 1e-9) << "point " << i;
+    const int col = static_cast<int>(std::floor((r.points[i][0] - f.grid.origin_x) / f.grid.resolution));
+    const int row = static_cast<int>(std::floor((r.points[i][1] - f.grid.origin_y) / f.grid.resolution));
+    EXPECT_GE(clearance[at(row, col)], std::min(p.preferred_clearance, a_star_min) - 1e-9) << "point " << i;
   }
   EXPECT_LT(r.corridors.size(), path.cells.size());
 }

@@ -29,11 +29,14 @@ std::vector<std::array<int, 2>> shortcut_cells(
       if (!detail::line_allowed(grid, blocked, cells[i], cells[j])) {
         continue;
       }
+      // the straight segment also crosses the two corner cells of every diagonal step
       const auto line = detail::line_cells(cells[i], cells[j]);
-      if (std::all_of(line.begin(), line.end(), [&](const detail::Cell & c) {
-          return clearance[detail::index(grid, c)] >= needed;
-        }))
-      {
+      auto clear = [&](const detail::Cell & c) {return clearance[detail::index(grid, c)] >= needed;};
+      bool ok = clear(line[0]);
+      for (size_t k = 1; ok && k < line.size(); ++k) {
+        ok = clear(line[k]) && clear({line[k][0], line[k - 1][1]}) && clear({line[k - 1][0], line[k][1]});
+      }
+      if (ok) {
         next = j;
         break;
       }

@@ -77,6 +77,8 @@ Route build_route(
   if (lead > 0) {
     std::vector<detail::Cell> box(path.cells.begin(), path.cells.begin() + static_cast<long>(lead + 1));
     Corridor k = cell_box(grid, box);
+    const double half = 0.5 * grid.resolution;  // whole cells: a pushed ball jitters sideways
+    k = {k.x_min - half, k.x_max + half, k.y_min - half, k.y_max + half};
     include(k, start);
     pieces.push_back({start, center(path.cells[lead][0], path.cells[lead][1]), k});
   }
