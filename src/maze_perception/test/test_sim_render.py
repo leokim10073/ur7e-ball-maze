@@ -1,5 +1,5 @@
-"""Board pose (P1) and ball (P3) from the sim's own overhead camera image, against the sim's
-ground truth.
+"""Board pose (P1), ball (P3) and ball state (P4) from the sim's own overhead camera image, against
+the sim's ground truth.
 
 Renders the MuJoCo scene offline (no ROS), with the board tilted and shifted in its grasp.
 Needs mujoco and maze_sim_description (both in the maze-sim container); skipped without them.
@@ -19,6 +19,7 @@ from maze_sim_description.config import load_sim_config  # noqa: E402
 from maze_sim_description.scene_builder import build_scene  # noqa: E402
 
 from maze_perception.ball import locate_ball  # noqa: E402
+from maze_perception.ball_filter import BallFilter  # noqa: E402
 from maze_perception.board_pose import Camera, estimate_board_pose  # noqa: E402
 from maze_perception.markers import MarkerDetector  # noqa: E402
 from test_ball import cad_walls  # noqa: E402
@@ -155,3 +156,65 @@ def test_no_ball_on_the_board(sim, cfg, seed):
     pose = estimate_board_pose(corners, cfg.board, camera, cfg.pose)
     best = locate_ball(image, pose, camera, replace(cfg.ball, min_score=-1.0), cfg.rectified)
     assert best.score < 0.9 * cfg.ball.min_score, (best.x, best.y)
+
+
+ARM = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+
+
+def _ball_in_board(model, data):
+    """(position, velocity) of the ball relative to the board, in the board frame."""
+    board, ball = model.body("board").id, model.body("ball").id
+    R = data.body("board").xmat.reshape(3, 3)
+    vb, vball = np.zeros(6), np.zeros(6)  # [angular, linear], world frame
+    mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_BODY, board, vb, 0)
+    mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_BODY, ball, vball, 0)
+    r = data.body("ball").xpos - data.xipos[board]
+    return R.T @ (data.body("ball").xpos - data.body("board").xpos), R.T @ (vball[3:] - vb[3:] - np.cross(vb[:3], r))
+
+
+@pytest.mark.parametrize("seed", range(2))
+def test_ball_state_while_rolling(sim, cfg, seed):
+    # P4: the ball rolls on the board as the arm tilts it (up to 4 deg about two wrist joints, a
+    # new tilt every 0.7 s), into walls and corners; a camera frame every 16 ms (62.5 Hz) through
+    # markers, board pose, ball and filter, as ball_tracker does. The arm is held by a PD loop
+    # with gravity compensation here (ros2_control does it in the full sim).
+    sim_cfg, model, renderer = sim
+    data = mujoco.MjData(model)
+    mujoco.mj_resetDataKeyframe(model, data, model.key("start").id)
+    mujoco.mj_forward(model, data)
+    qa = [model.joint(j).qposadr[0] for j in ARM]
+    da = [model.joint(j).dofadr[0] for j in ARM]
+    ua = [model.actuator(j).id for j in ARM]
+    home = data.qpos[qa].copy()
+    w, h = sim_cfg.camera.resolution
+    fx, fy, cx, cy = pinhole_intrinsics(w, h, sim_cfg.camera.hfov_deg)
+    camera = Camera(K=np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]]), D=np.zeros(5), width=w, height=h)
+    detector = MarkerDetector(cfg.board.dictionary, ids=cfg.board.markers)
+    filt = BallFilter(cfg.tracking)
+    rng = np.random.default_rng(seed)
+    steps = int(round(1 / 60 / model.opt.timestep))  # 8 x 2 ms
+    target, next_tilt, pos_err, vel_err, speeds = home, 0.0, [], [], []
+    while data.time < 3.0:
+        if data.time >= next_tilt:
+            target = home.copy()
+            target[3] += np.radians(rng.uniform(-4, 4))
+            target[5] += np.radians(rng.uniform(-4, 4))
+            next_tilt += 0.7
+        for _ in range(steps):
+            data.ctrl[ua] = data.qfrc_bias[da] + 2000 * (target - data.qpos[qa]) - 100 * data.qvel[da]
+            mujoco.mj_step(model, data)
+        renderer.update_scene(data, camera="overhead_camera")
+        image = renderer.render()
+        pose = estimate_board_pose(detector.detect(image), cfg.board, camera, cfg.pose)
+        b = None if pose is None else locate_ball(image, pose, camera, cfg.ball, cfg.rectified)
+        est = filt.step(data.time, None if b is None else (b.x, b.y))
+        p, v = _ball_in_board(model, data)
+        assert est.tracking_ok, data.time
+        pos_err.append(np.hypot(est.x - p[0], est.y - p[1]))
+        vel_err.append(np.hypot(est.vx - v[0], est.vy - v[1]))
+        speeds.append(np.hypot(*v[:2]))
+    pos_err, vel_err = np.array(pos_err[10:]), np.array(vel_err[10:])  # after the first 1/6 s
+    assert max(speeds) > 0.05  # it did roll
+    assert np.sqrt(np.mean(pos_err ** 2)) < 0.002 and pos_err.max() < 0.004
+    assert np.sqrt(np.mean(vel_err ** 2)) < 0.04  # m/s
+

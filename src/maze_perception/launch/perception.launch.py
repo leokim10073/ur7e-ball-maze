@@ -1,5 +1,6 @@
-"""Perception nodes. With the sim:   ros2 launch maze_perception perception.launch.py
-On the robot (wall clock):          ros2 launch maze_perception perception.launch.py use_sim_time:=false
+"""Perception: ball_tracker (board pose, rectified image and /ball/state from each camera frame).
+With the sim:               ros2 launch maze_perception perception.launch.py
+On the robot (wall clock):  ros2 launch maze_perception perception.launch.py use_sim_time:=false
 """
 
 from launch import LaunchDescription
@@ -19,9 +20,9 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
         DeclareLaunchArgument("rectified_rate", default_value="5.0", description="Hz of /perception/board_image; 0 = off"),
     ]
-    board_tracker = Node(
+    tracker = Node(
         package="maze_perception",
-        executable="board_tracker",
+        executable="ball_tracker",
         output="screen",
         parameters=[{
             "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
@@ -31,4 +32,4 @@ def generate_launch_description():
             "rectified_rate": ParameterValue(LaunchConfiguration("rectified_rate"), value_type=float),
         }],
     )
-    return LaunchDescription([*args, board_tracker])
+    return LaunchDescription([*args, tracker])

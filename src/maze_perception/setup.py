@@ -17,11 +17,12 @@ setup(
     install_requires=["setuptools"],
     entry_points={"console_scripts": [
         "board_tracker = maze_perception.board_node:main",
+        "ball_tracker = maze_perception.ball_node:main",
     ]},
     zip_safe=True,
     maintainer="Zhuoren Li",
     maintainer_email="gabriel.li@berkeley.edu",
-    description="Overhead-camera perception for the maze: ArUco board pose, rectified board image.",
+    description="Overhead-camera perception for the maze: ArUco board pose, rectified board image, ball state.",
     license="MIT",
     tests_require=["pytest"],
 )

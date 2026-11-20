@@ -3,13 +3,14 @@
 <package format="3">
   <name>maze_perception</name>
   <version>0.1.0</version>
-  <description>Overhead-camera perception for the maze: ArUco board pose, rectified board image.</description>
+  <description>Overhead-camera perception for the maze: ArUco board pose, rectified board image, ball state.</description>
   <maintainer email="gabriel.li@berkeley.edu">Zhuoren Li</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>maze_interfaces</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch_ros</exec_depend>
