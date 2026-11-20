@@ -17,6 +17,7 @@ add_library(maze_planning_core STATIC
   src/shortcut.cpp
   src/corridors.cpp
   src/route.cpp
+  src/replan_monitor.cpp
 )
 target_compile_features(maze_planning_core PUBLIC cxx_std_17)
 set_target_properties(maze_planning_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -37,6 +38,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_blocked maze_planning_core)
   ament_add_gtest(test_grid_planner test/test_grid_planner.cpp)
   target_link_libraries(test_grid_planner maze_planning_core)
+  ament_add_gtest(test_replan_monitor test/test_replan_monitor.cpp)
+  target_link_libraries(test_replan_monitor maze_planning_core)
 
   # the L1 maze, exported from the CAD by scripts/export_fixture.py
   find_package(yaml_cpp_vendor REQUIRED)
