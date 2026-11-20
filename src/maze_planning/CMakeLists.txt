@@ -30,6 +30,25 @@ install(TARGETS maze_planning_core EXPORT export_maze_planning
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 ament_export_targets(export_maze_planning HAS_LIBRARY_TARGET)
 
+# the planner node (PL4): message conversion and when to plan; the executable only wraps it
+find_package(rclcpp REQUIRED)
+find_package(maze_interfaces REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+add_library(maze_planning_node STATIC
+  src/ros_convert.cpp
+  src/planner_node.cpp
+)
+target_include_directories(maze_planning_node PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>)
+target_link_libraries(maze_planning_node maze_planning_core)
+ament_target_dependencies(maze_planning_node rclcpp maze_interfaces nav_msgs geometry_msgs std_msgs)
+
+add_executable(planner src/planner_main.cpp)
+target_link_libraries(planner maze_planning_node)
+install(TARGETS planner DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_clearance test/test_clearance.cpp)
@@ -55,6 +74,12 @@ if(BUILD_TESTING)
     target_include_directories(${t} PRIVATE src)
     target_compile_definitions(${t} PRIVATE MAZE_PLANNING_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
   endforeach()
+
+  # the node in-process; its own DDS domain so a running sim does not interfere
+  ament_add_gtest(test_planner_node test/test_planner_node.cpp
+    ENV ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1 TIMEOUT 120)
+  target_link_libraries(test_planner_node maze_planning_node yaml-cpp)
+  target_compile_definitions(test_planner_node PRIVATE MAZE_PLANNING_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
 endif()
 
 ament_package()

@@ -1,0 +1,13 @@
+# The planner node (maze_planning, Contract 3 in docs/interfaces.md). Every key is required.
+planner:
+  ros__parameters:
+    ball_radius: 0.0125          # 25 mm marble (#19)
+    wall_margin: 0.003           # extra wall clearance beyond the ball radius, m
+    hole_margin: 0.003           # keep the ball center this far outside a hole's rim, m
+    preferred_clearance: 0.020   # closer than this to a wall costs extra, m
+    clearance_weight: 2.0        # how much extra
+    point_spacing: 0.005         # route points at most this far apart, m
+    replan:
+      outside_margin: 0.003      # ball must be this far outside every corridor ...
+      outside_frames: 3          # ... for this many consecutive usable ball states (~0.05 s at 60 Hz)
+      no_path_retry_period: 0.5  # s, between retries after STATUS_NO_PATH
