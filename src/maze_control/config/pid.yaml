@@ -1,0 +1,40 @@
+# PID ball controller. Every gain, limit and topic lives here.
+# Board frame maze_board (docs/interfaces.md): origin at the plate centre, z up,
+# handle on the -x edge. SI units: m, m/s, rad, rad/s, s.
+maze_pid_controller:
+  ros__parameters:
+    rate_hz: 60.0
+
+    topics:
+      state: /ball/state          # maze_interfaces/BallState (contract 2)
+      path: /maze/path            # nav_msgs/Path, maze_board (contract 3)
+      tilt_cmd: /board/tilt_cmd   # maze_interfaces/BoardTilt (contract 4)
+    frame_id: maze_board         # same board frame as perception and the sim
+
+    # Output: BoardTilt tilt_x / tilt_y, defined by the effect on the ball
+    # (contract 4): tilt_x > 0 accelerates the ball towards +x, tilt_y > 0
+    # towards +y. The PID's u is that tilt, so no sign parameters are needed.
+
+    # Kept below arm control's hard limits (contract 4: 0.087 rad, 0.5 rad/s)
+    # so the arm's clamp never acts.
+    limits:
+      max_tilt: 0.08              # per axis [rad] (4.6 deg)
+      max_rate: 0.3               # per axis [rad/s] (17 deg/s)
+
+    # u = kp*e - kd*v + ki*int(e), u in rad, e in m, v in m/s (from the KF)
+    pid:
+      kp: 1.4                     # rad / m
+      kd: 0.55                    # rad / (m/s)
+      ki: 0.6                     # rad / (m s)
+      i_zone: 0.02                # integrate only while |e| < i_zone [m]
+      i_max: 0.0174533            # cap on the integral term [rad] (1 deg)
+
+    tracker:
+      lookahead: 0.05             # L [m]
+      goal_tol: 0.02              # within this of the goal: stop advancing [m]
+      search_ahead: 0.15          # projection window ahead of progress [m]
+      search_back: 0.02           # projection window behind progress [m]
+
+    watchdog:
+      state_timeout: 0.2          # contract 2's tracking_timeout: no good /ball/state for
+                                  # this long -> tilt to 0 and stop the run until a new path [s]

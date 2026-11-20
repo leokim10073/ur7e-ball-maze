@@ -302,3 +302,55 @@ cd src/maze_cad_map && python3 -m pytest test
 ```
 
 They check the walls, start and goal against the sim export (`parts_report.json`) and `sim.yaml`, and that a subscriber that starts late still receives the map.
+
+## Control
+
+`maze_control` tilts the board so the ball follows the planned path. So far: a PID path tracker, the baseline before MPC.
+
+The control code is plain Python (numpy, no ROS) and is tested against an offline ball simulator; `pid_node` is the ROS node around it. Pieces every controller shares live in `common/`, and each controller gets its own subpackage, so an MPC goes next to `pid/` as `mpc/`:
+
+```
+src/maze_control/
+  maze_control/common/   path_tracker.py (look-ahead target on the path), ball_sim.py (offline sim),
+                         config.py (YAML loader), scenarios.py (test paths)
+  maze_control/pid/      pid_law.py (two-axis PID), controller.py (tracker + PID + watchdog), node.py
+  config/                pid.yaml (gains, limits, signs, topics), sim.yaml (offline sim plant)
+  launch/                pid.launch.py
+  scripts/               plot_trajectories.py
+```
+
+### Run (inside `maze-sim`)
+
+```bash
+colcon build && source install/setup.bash
+ros2 launch maze_control pid.launch.py use_sim_time:=true   # false (default) on the robot
+```
+
+| Topic | Type | Notes |
+|---|---|---|
+| `/ball/state` (in) | `nav_msgs/Odometry` | `pose.pose.position.x/y` [m], `twist.twist.linear.x/y` [m/s] in the board frame, 60 Hz; placeholder type until the ball tracker exists |
+| `/maze/path` (in) | `nav_msgs/Path` | Board frame, m; a new path restarts tracking, the same path republished does not |
+| `/board/tilt_cmd` (out) | `geometry_msgs/Vector3Stamped` | `x` = θx, `y` = θy [rad], frame `maze_board`, 60 Hz |
+
+Board frame as in [Perception](#perception): origin at the plate center, +x right, +y up seen from the camera. θy > 0 rolls the ball to +x and θx > 0 rolls it to −y; both signs are parameters (`sign.*`).
+
+[`config/pid.yaml`](src/maze_control/config/pid.yaml) holds every gain and limit: tilt 0.08 rad (4.6°) and 0.3 rad/s per axis, below arm control's hard limits of 0.087 rad and 0.5 rad/s ([contract 4](docs/interfaces.md)); look-ahead 5 cm; stop advancing within 2 cm of the goal.
+
+Tracking loss ([contract 2](docs/interfaces.md)): states with `tracking_ok = false` are ignored. After 200 ms without a good state during a run, the board tilts back to 0 (rate limited) and the run stops (`status: stopped`). It stays stopped when the ball is found again; only a new path on `/maze/path` starts the next run.
+
+### PID
+
+Per axis, `u = kp·e − kd·v + ki·∫e`. `e` is the look-ahead target minus the ball position. The D term uses the Kalman-filter velocity rather than differentiating the position. The integrator runs only within 2 cm of the target, is capped, and freezes while the output is limited. The output is clipped to the tilt limit first, then to the rate limit.
+
+![PID in the offline sim](docs/media/pid_trajectories.png)
+
+Offline sim with a 14 mm steel ball, `a = (5/7)·g·sin θ − c·v`, an 80 ms tilt lag and 50 ms command delay: within 2 cm of the goal after 3.9 s (straight), 5.8 s (L) and 7.1 s (U), with at most 7.9 mm off the path. With a 120 ms lag, 100 ms delay and KF-like noise it still reaches the goal; at 150 ms + 150 ms it oscillates, so retune once the arm's latency is measured.
+
+### Tests (no ROS needed)
+
+```bash
+cd src/maze_control && python3 -m pytest test
+python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
+```
+
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker.
