@@ -13,6 +13,7 @@ add_library(maze_planning_core STATIC
   src/grid.cpp
   src/clearance.cpp
   src/blocked.cpp
+  src/grid_planner.cpp
 )
 target_compile_features(maze_planning_core PUBLIC cxx_std_17)
 set_target_properties(maze_planning_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -31,6 +32,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_clearance maze_planning_core)
   ament_add_gtest(test_blocked test/test_blocked.cpp)
   target_link_libraries(test_blocked maze_planning_core)
+  ament_add_gtest(test_grid_planner test/test_grid_planner.cpp)
+  target_link_libraries(test_grid_planner maze_planning_core)
 endif()
 
 ament_package()
