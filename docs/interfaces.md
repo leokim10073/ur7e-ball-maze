@@ -141,8 +141,8 @@ bool tracking_ok         # false = ball or board not found in this frame; x, y, 
 **Edge cases:**
 
 - Ball not detected, or board not found (fewer than 3 ArUco markers): still publish, with the filter's prediction and `tracking_ok = false`.
-- One rule for subscribers: `tracking_ok` false for more than `tracking_timeout` (0.2 s, about 12 frames at 60 Hz; a config value, not a constant) → command a level board and stop the run (proposal: "predict briefly, then stop the trial if tracking remains lost").
-- No message for `tracking_timeout`: the tracker has died; same reaction.
+- One rule for subscribers: `tracking_ok` false for more than `tracking_timeout` (0.2 s, about 12 frames at 60 Hz; a config value, not a constant) → command a level board; when good states come back, the run carries on. Still lost after `tracking_abort` (2 s, also a config value) → stop the run until a new path (proposal: "predict briefly, then stop the trial if tracking remains lost").
+- No message for `tracking_timeout`: the tracker may have died, or the camera stalled; same reaction.
 
 **How to check:** in the sim, convert `/sim/ball/pose` (world frame) into `maze_board` using `/sim/board/pose`; `x, y` must be within a few mm (#13's done-when).
 
@@ -285,3 +285,4 @@ tilt_y: -0.010
 - v0 (2026-11-12): first draft. Contracts 1–4, `maze_interfaces` messages, CAD map tool.
 - v0 (2026-11-18): review. Contract 1: goal from CAD, grid = maze area. Contract 2: one `tracking_timeout` (0.2 s), publish a prediction when the board is lost, ball center at z = r, controller predicts forward from `header.stamp`. Contract 4: hard limits 5° and 0.5 rad/s. Confirmed by Steven: `/maze/path` and the tilt sign.
 - v0 (2026-11-19): Contract 1: the map always comes from the CAD, in the sim and on the real board; perception no longer maps the maze.
+- v0 (2026-11-20): Contract 2: after `tracking_timeout` the controller levels the board and resumes when tracking comes back; it stops the run only after `tracking_abort` (2 s). In the MuJoCo sim the camera stalls for 0.2–0.5 s a few times every 10 s, which used to end every run.
