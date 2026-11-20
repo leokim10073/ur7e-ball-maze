@@ -50,6 +50,7 @@ class RectifiedSettings:
 class BallSettings:
     radius: float  # m
     floor: Tuple[float, float, float, float]  # x_min, x_max, y_min, y_max inside the outer walls, m
+    wall_height: float  # m above the floor
     not_floor: float  # CIELAB distance from the floor color at which a pixel is fully not floor
     min_score: float  # 0..1
 
@@ -94,7 +95,8 @@ def load_perception_config(path) -> PerceptionConfig:
         if len(b["floor"]) != 4:
             raise ValueError("ball.floor must be [x_min, x_max, y_min, y_max]")
         fx, fy = _pair(b["floor"][:2], "ball.floor x"), _pair(b["floor"][2:], "ball.floor y")
-        ball = BallSettings(radius=float(b["radius"]), floor=(*fx, *fy), not_floor=float(b["not_floor"]),
+        ball = BallSettings(radius=float(b["radius"]), floor=(*fx, *fy), wall_height=float(b["wall_height"]),
+                            not_floor=float(b["not_floor"]),
                             min_score=float(b["min_score"]))
         k = raw["tracking"]
         tracking = TrackingSettings(
@@ -111,8 +113,8 @@ def load_perception_config(path) -> PerceptionConfig:
         raise ValueError(f"pose.min_markers must be between 1 and {len(markers)}")
     if rect.px_per_m <= 0:
         raise ValueError("rectified.px_per_m must be positive")
-    if ball.radius <= 0 or ball.not_floor <= 0:
-        raise ValueError("ball.radius and ball.not_floor must be positive")
+    if ball.radius <= 0 or ball.not_floor <= 0 or ball.wall_height <= 0:
+        raise ValueError("ball.radius, ball.wall_height and ball.not_floor must be positive")
     if not 0 < ball.min_score < 1:
         raise ValueError("ball.min_score must be between 0 and 1")
     if ball.radius * rect.px_per_m < 3:

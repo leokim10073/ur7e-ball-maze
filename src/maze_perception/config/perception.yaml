@@ -30,6 +30,7 @@ ball:
   # is the disc of its size that is most not-floor compared with the ring around it.
   radius: 0.007                      # m (sim.yaml ball.radius; the steel ball on the real board)
   floor: [-0.141, 0.141, -0.141, 0.141]   # x_min, x_max, y_min, y_max inside the outer walls, m (CAD, checked by a test)
+  wall_height: 0.018                 # m (CAD wall_h): walls from /maze/map are left out up to this height
   not_floor: 20.0                    # CIELAB distance; sim ball 29-60 from the floor, floor noise below
   min_score: 0.5                     # disc minus ring share of not-floor pixels, 0..1; less -> no ball
 

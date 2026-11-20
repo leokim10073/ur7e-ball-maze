@@ -64,3 +64,20 @@ def render_board(cfg, camera, R, t, background=128, quiet_zone=0.005):
         cv2.warpPerspective(sticker, H, (camera.width, camera.height), dst=img, flags=cv2.INTER_LINEAR,
                             borderMode=cv2.BORDER_TRANSPARENT)
     return cv2.GaussianBlur(img, (0, 0), 0.7)  # a little lens blur, as a real camera has
+
+
+def board_image_with_ball(cfg, camera, R, t, ball_xy, floor_rgb=(209, 184, 140), ball_rgb=(199, 199, 211)):
+    """RGB camera image: render_board's markers on a tan floor, and a grey ball (cfg.ball.radius)
+    resting at board (x, y) = ball_xy."""
+    from maze_perception.board_pose import BoardPose
+
+    gray = render_board(cfg, camera, R, t)
+    rgb = np.clip(np.dstack([gray] * 3) * (np.asarray(floor_rgb) / 128.0), 0, 255).astype(np.uint8)
+    pose = BoardPose(R, t, (0, 1, 2, 3), 0.0)
+    center = np.array([[*ball_xy, cfg.ball.radius]])
+    c = pose.board_to_pixel(center, camera)[0]
+    r_px = camera.K[0, 0] * cfg.ball.radius / (R @ center[0] + t)[2]
+    cv2.circle(rgb, (int(round(c[0] * 16)), int(round(c[1] * 16))), int(round(r_px * 16)), ball_rgb, -1,
+               lineType=cv2.LINE_AA, shift=4)
+    return rgb
+

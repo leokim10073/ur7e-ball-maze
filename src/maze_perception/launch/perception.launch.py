@@ -1,10 +1,14 @@
-"""Perception: ball_tracker (board pose, rectified image and /ball/state from each camera frame).
+"""Perception: ball_tracker (board pose, rectified image and /ball/state from each camera frame),
+and the CAD maze map it needs (/maze/map, maze_cad_map) unless with_map:=false. Run from the repo root
+(maze_cad_map finds maze_CAD/scripts there).
 With the sim:               ros2 launch maze_perception perception.launch.py
 On the robot (wall clock):  ros2 launch maze_perception perception.launch.py use_sim_time:=false
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -19,7 +23,17 @@ def generate_launch_description():
         DeclareLaunchArgument("image_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
         DeclareLaunchArgument("rectified_rate", default_value="5.0", description="Hz of /perception/board_image; 0 = off"),
+        DeclareLaunchArgument("with_map", default_value="true",
+                              description="also start maze_cad_map (/maze/map); false if it already runs"),
+        DeclareLaunchArgument("level", default_value="L1", description="maze level for maze_cad_map"),
     ]
+    cad_map = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution(
+            [FindPackageShare("maze_cad_map"), "launch", "cad_map.launch.py"])),
+        launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time"),
+                          "level": LaunchConfiguration("level")}.items(),
+        condition=IfCondition(LaunchConfiguration("with_map")),
+    )
     tracker = Node(
         package="maze_perception",
         executable="ball_tracker",
@@ -32,4 +46,4 @@ def generate_launch_description():
             "rectified_rate": ParameterValue(LaunchConfiguration("rectified_rate"), value_type=float),
         }],
     )
-    return LaunchDescription([*args, tracker])
+    return LaunchDescription([*args, cad_map, tracker])

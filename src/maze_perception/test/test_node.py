@@ -15,9 +15,8 @@ from sensor_msgs.msg import CameraInfo, Image  # noqa: E402
 from std_msgs.msg import Header  # noqa: E402
 from builtin_interfaces.msg import Time  # noqa: E402
 
-from conftest import PKG, board_in_camera, render_board  # noqa: E402
+from conftest import PKG, board_image_with_ball, board_in_camera, render_board  # noqa: E402
 from maze_perception.board_node import BoardTracker  # noqa: E402
-from maze_perception.board_pose import BoardPose  # noqa: E402
 from maze_perception.ros_image import rgb_to_image  # noqa: E402
 
 
@@ -66,25 +65,10 @@ def test_board_pose_published(ros, cfg, camera):
     assert boards and (boards[-1].width, boards[-1].height) == cfg.rectified.size
 
 
-def _with_ball(cfg, camera, R, t, gray, ball_xy):
-    """RGB camera image: the board's markers on a tan floor, and a grey ball (r = cfg.ball.radius)
-    resting at board (x, y)."""
-    import cv2
-
-    rgb = np.clip(np.dstack([gray] * 3) * (np.array([209, 184, 140]) / 128.0), 0, 255).astype(np.uint8)
-    pose = BoardPose(R, t, (0, 1, 2, 3), 0.0)
-    center = np.array([[*ball_xy, cfg.ball.radius]])
-    c = pose.board_to_pixel(center, camera)[0]
-    r_px = camera.K[0, 0] * cfg.ball.radius / (R @ center[0] + t)[2]
-    cv2.circle(rgb, (int(round(c[0] * 16)), int(round(c[1] * 16))), int(round(r_px * 16)), (199, 199, 211), -1,
-               lineType=cv2.LINE_AA, shift=4)
-    return rgb
-
-
 def test_ball_state_published(ros, cfg, camera):
-    from maze_interfaces.msg import BallState
+    from maze_interfaces.msg import BallState, MazeMap
 
-    from maze_perception.ball_node import BallTracker
+    from maze_perception.ball_node import MAP_QOS, BallTracker
     from maze_perception.board_node import SENSOR_QOS
 
     tracker = BallTracker(parameter_overrides=[
@@ -100,7 +84,7 @@ def test_ball_state_published(ros, cfg, camera):
 
     R, t = board_in_camera(tilt_deg=(2, -1), offset=(0.0, 0.01))
     ball_xy = (0.03, -0.05)
-    with_ball = rgb_to_image(_with_ball(cfg, camera, R, t, render_board(cfg, camera, R, t), ball_xy), Header())
+    with_ball = rgb_to_image(board_image_with_ball(cfg, camera, R, t, ball_xy), Header())
     no_board = rgb_to_image(np.full((camera.height, camera.width, 3), 128, np.uint8), Header())
     info = CameraInfo(header=Header(frame_id="camera_optical_frame"), width=camera.width, height=camera.height,
                       distortion_model="plumb_bob", k=camera.K.ravel().tolist(), d=[0.0] * 5)
@@ -110,6 +94,18 @@ def test_ball_state_published(ros, cfg, camera):
     peer.create_subscription(BallState, "/ball/state", states.append, SENSOR_QOS)
     info_pub = peer.create_publisher(CameraInfo, "/test/camera_info", 10)
     image_pub = peer.create_publisher(Image, "/test/image", 10)
+    # contract 1's map, latched: here only the outer walls (the synthetic board has no inner ones)
+    map_pub = peer.create_publisher(MazeMap, "/maze/map", MAP_QOS)
+    maze = MazeMap(source="test")
+    maze.header.frame_id = maze.walls.header.frame_id = "maze_board"
+    maze.walls.info.resolution, maze.walls.info.width, maze.walls.info.height = 0.005, 60, 60
+    maze.walls.info.origin.position.x = maze.walls.info.origin.position.y = -0.15
+    centers = -0.15 + (np.arange(60) + 0.5) * 0.005
+    cx, cy = np.meshgrid(centers, centers)
+    x0, x1, y0, y1 = cfg.ball.floor
+    outside = (cx < x0) | (cx > x1) | (cy < y0) | (cy > y1)
+    maze.walls.data = np.where(outside, 100, 0).astype(np.int8).ravel().tolist()
+    map_pub.publish(maze)
 
     def send(image, k):  # frame k, captured at 100 s + k / 60
         image.header = Header(frame_id="camera_optical_frame", stamp=Time(sec=100, nanosec=int(k * 1e9 / 60)))
