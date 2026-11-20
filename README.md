@@ -206,7 +206,7 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: [#23](https://github.com/leokim10073/ee206-project/issues/23). So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that (library only, no node yet). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
+`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that (library only, no node yet). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
 
 The geometry is a plain Python library (`board_pose.py`, no ROS) so the ball finder and the later ball tracker use it directly; `board_tracker` is the ROS node around it.
 
@@ -263,7 +263,7 @@ cd src/maze_perception && python3 -m pytest test
 
 ## CAD maze map
 
-`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz, so planning can run before perception maps the maze. It is also the answer key for perception's map. Work package: [#29](https://github.com/leokim10073/ee206-project/issues/29).
+`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz. It is the only map source, in the sim and on the real board: the camera only finds the board pose and the ball.
 
 Run it from the repo root, inside `maze-sim` (the default `cad_scripts` path is relative to it):
 

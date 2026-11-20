@@ -1,9 +1,9 @@
 # Contract 1 (docs/interfaces.md): the maze, once per maze, on /maze/map.
-# Published by the CAD map tool (maze_cad_map) until perception P2 replaces it.
+# Published by the CAD map tool (maze_cad_map), in the sim and on the real board: the map always
+# comes from the CAD, never from the camera.
 
-std_msgs/Header header        # frame_id = "maze_board"; stamp = capture time of the image the map
-                              # was built from (CAD tool: the time it was published)
-string source                 # where it came from: "cad:L1", "perception", ...
+std_msgs/Header header        # frame_id = "maze_board"; stamp = the time it was published
+string source                 # where it came from: "cad:L1", "cad:L2", ...
 
 nav_msgs/OccupancyGrid walls  # 0 = free floor, 100 = wall or outside the outer walls, -1 = unknown
                               # (the planner treats -1 as wall). Holes are NOT in the grid.
