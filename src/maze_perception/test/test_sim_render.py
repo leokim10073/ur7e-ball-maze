@@ -5,24 +5,30 @@ Renders the MuJoCo scene offline (no ROS), with the board tilted and shifted in 
 Needs mujoco and maze_sim_description (both in the maze-sim container); skipped without them.
 """
 
+import importlib.util
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-mujoco = pytest.importorskip("mujoco")
-pytest.importorskip("maze_sim_description")
+from maze_perception.ball import locate_ball
+from maze_perception.ball_filter import BallFilter
+from maze_perception.board_pose import Camera, estimate_board_pose
+from maze_perception.markers import MarkerDetector
+from test_ball import cad_wall_grid, cad_walls
 
-from maze_sim_description.camera_math import look_at_quaternion, pinhole_intrinsics, quat_to_matrix  # noqa: E402
-from maze_sim_description.config import load_sim_config  # noqa: E402
-from maze_sim_description.scene_builder import build_scene  # noqa: E402
+# Not pytest.importorskip at module level: ROS Humble's launch_testing pytest plugin imports every
+# test module while collecting, and a module-level skip raised there skips the whole session
+# (every perception test), not just this file.
+HAVE_SIM = all(importlib.util.find_spec(m) is not None for m in ("mujoco", "maze_sim_description"))
+pytestmark = pytest.mark.skipif(not HAVE_SIM, reason="needs mujoco and maze_sim_description (maze-sim container)")
 
-from maze_perception.ball import locate_ball  # noqa: E402
-from maze_perception.ball_filter import BallFilter  # noqa: E402
-from maze_perception.board_pose import Camera, estimate_board_pose  # noqa: E402
-from maze_perception.markers import MarkerDetector  # noqa: E402
-from test_ball import cad_wall_grid, cad_walls  # noqa: E402
+if HAVE_SIM:
+    import mujoco
+    from maze_sim_description.camera_math import look_at_quaternion, pinhole_intrinsics, quat_to_matrix
+    from maze_sim_description.config import load_sim_config
+    from maze_sim_description.scene_builder import build_scene
 
 
 def _sim_pkg():
