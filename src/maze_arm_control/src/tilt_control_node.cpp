@@ -96,7 +96,7 @@ TiltControlNode::TiltControlNode(const rclcpp::NodeOptions & options)
   home_rot_tol_ = required<double>("home_tolerance.rotation");
 
   ReferenceParams rp{required<double>("limits.max_tilt"), required<double>("limits.max_rate"),
-    required<double>("reference.smoothing_tau")};
+    required<double>("reference.max_accel"), required<double>("reference.smoothing_tau")};
   ControllerParams cp;
   cp.k_pos = required<double>("gains.k_pos");
   cp.k_rot = required<double>("gains.k_rot");
@@ -112,7 +112,7 @@ TiltControlNode::TiltControlNode(const rclcpp::NodeOptions & options)
   jump_threshold_ = required<double>("joint_jump_threshold");
   yaw_warn_ = required<double>("yaw_warn");
 
-  const bool positive = rp.max_tilt > 0 && rp.max_rate > 0 && rp.smoothing_tau >= 0 && cp.k_pos > 0 &&
+  const bool positive = rp.max_tilt > 0 && rp.max_rate > 0 && rp.max_accel > 0 && rp.smoothing_tau >= 0 && cp.k_pos > 0 &&
     cp.k_rot > 0 && cp.sigma_min > 0 && cp.lambda_max >= 0 && cp.max_linear_speed > 0 &&
     cp.max_angular_speed > 0 && (cp.max_joint_speed.array() > 0).all() &&
     (cp.max_joint_accel.array() > 0).all() && cmd_timeout > 0 && state_timeout_ > 0 && period_ > 0 &&
@@ -193,14 +193,16 @@ void TiltControlNode::on_tilt_cmd(const maze_interfaces::msg::BoardTilt & msg)
 
 void TiltControlNode::on_reset_done()
 {
-  if (phase_ == Phase::kFailed) {
+  // Only once running: before that, start-up (with its home check) is still under way. The sim reset
+  // has just put the arm back at its start pose, so no new home check: the reset leaves the board a few
+  // mm low in velocity mode (the sim arm droops under the board's weight when the velocity controller
+  // takes over), which the controller pulls back once commands come. Re-check the controllers, resync.
+  if (phase_ != Phase::kRunning && phase_ != Phase::kHalted) {
     return;
   }
-  if (phase_ == Phase::kRunning || phase_ == Phase::kHalted) {
-    RCLCPP_INFO(get_logger(), "sim reset: re-running start-up");
-  }
+  RCLCPP_INFO(get_logger(), "sim reset: checking the controllers, then resync");
   publish_velocity(Joints::Zero());
-  phase_ = Phase::kWaitState;
+  phase_ = Phase::kSwitch;
 }
 
 void TiltControlNode::on_joint_state(const sensor_msgs::msg::JointState & msg)

@@ -39,6 +39,8 @@ tilt_control:
       max_tilt: 0.087            # per axis, rad (5 deg)
       max_rate: 0.5              # per axis, rad/s
     reference:
+      max_accel: 8.0             # per axis, rad/s^2: the reference's rate ramps up and down (no abrupt
+                                 # stop for the arm to overshoot), and it brakes in time to stop on the command
       smoothing_tau: 0.015       # first-order filter on the ~60 Hz command before its rate is used, s
                                # (longer smooths more but lags: ~tau * tilt rate of error)
 

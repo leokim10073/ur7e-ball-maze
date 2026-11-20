@@ -98,3 +98,12 @@ Steps: write tests -> run in distrobox -> plot -> commit.
 - [ ] Full `colcon test` in the distrobox (rerun `maze_sim_bringup` alone if `test_camera_rate` flakes).
 - [ ] Whole-branch review by a fresh Opus reviewer; fix findings.
 - [ ] `graphify update .`; commit; ask before any push.
+
+## Changes made while building
+
+- Reference shaper: an acceleration limit (`reference.max_accel`, 8 rad/s^2) that brakes in time to stop on the
+  command, after the sim showed 5 deg steps overshooting to 6 deg (the arm lags the abrupt end of the 0.5 rad/s ramp).
+  Low-pass tau is 15 ms (25 ms lagged a 0.5 Hz 5 deg sine by more than 0.5 deg).
+- `/sim/reset_done`: re-check the controllers and resync, no new home check. Switching to the velocity controller
+  makes the sim arm droop ~5 mm / 0.6 deg, and a reset with the velocity controller active leaves the arm where it
+  was; a home check there refused to run. The home check stays at first start.

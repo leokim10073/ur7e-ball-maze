@@ -46,6 +46,7 @@ add_executable(tilt_control src/tilt_control_main.cpp)
 target_link_libraries(tilt_control maze_arm_control_node)
 install(TARGETS tilt_control DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+install(PROGRAMS scripts/plot_tilt_run.py DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -68,6 +69,11 @@ if(BUILD_TESTING)
   # the config against the sim's own files
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_config test/test_config.py)
+
+  # the node driving the MuJoCo sim (Contract 4 "How to check", tracking, watchdog, reset, pid_node);
+  # its own DDS domain, so a sim or the PL5 stand-in running elsewhere cannot answer /board/tilt_cmd
+  find_package(launch_testing_ament_cmake REQUIRED)
+  add_launch_test(test/test_sim_tilt.py TIMEOUT 900 ENV ROS_DOMAIN_ID=79 ROS_LOCALHOST_ONLY=1)
 endif()
 
 ament_package()

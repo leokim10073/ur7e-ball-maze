@@ -254,6 +254,28 @@ TEST_F(NodeTest, FailedSwitchRefuses)
   EXPECT_EQ(arm->switches, 1);
 }
 
+TEST_F(NodeTest, SimResetResyncsWithoutHomeCheck)
+{
+  start(test_support::home_joints());
+  auto reset_pub = helper->create_publisher<std_msgs::msg::Empty>(
+    "/sim/reset_done", rclcpp::QoS(1).reliable().transient_local());
+  run(0.3, Eigen::Vector2d(0.0, 0.0));
+  ASSERT_EQ(node->phase(), TiltControlNode::Phase::kRunning);
+  // a reset: the controller goes away for a moment, the arm comes back drooped (> home_tolerance)
+  arm->states["forward_velocity_controller"] = "inactive";
+  run(1.2, Eigen::Vector2d(0.0, 0.0));
+  ASSERT_EQ(node->phase(), TiltControlNode::Phase::kHalted);
+  arm->states["forward_velocity_controller"] = "active";
+  arm->q[1] += 0.01;  // shoulder lift: ~8 mm at the board
+  reset_pub->publish(std_msgs::msg::Empty());
+  run(0.5, Eigen::Vector2d(0.0, 0.0));
+  EXPECT_EQ(node->phase(), TiltControlNode::Phase::kRunning);
+  const auto kin = test_support::sim_kinematics();
+  const double off = (kin.fk_board(arm->q).translation() -
+    kin.fk_board(test_support::home_joints()).translation()).norm();
+  EXPECT_LT(off, 0.0005);  // pulled back to home
+}
+
 TEST_F(NodeTest, HaltsWhenVelocityControllerGoesAway)
 {
   start(test_support::home_joints());

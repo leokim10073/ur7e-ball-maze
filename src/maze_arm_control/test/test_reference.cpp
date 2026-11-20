@@ -82,3 +82,46 @@ TEST(Reference, SmoothsSixtyHertzStaircase)
   // 0.29 rad/s at tau = 15 ms
   EXPECT_LT(max_jump, 0.3);
 }
+
+TEST(Reference, AccelerationLimitedAndNoOvershoot)
+{
+  // A full-range step: the reference's rate ramps up and down at most max_accel (trapezoid), and it
+  // stops at the clamped command without passing it (the arm lags the rate; an abrupt stop overshoots)
+  const auto p = test_support::reference_params();
+  ReferenceShaper ref(p);
+  ref.reset({0, 0});
+  ref.set_command({0.2, -0.04});
+  Eigen::Vector2d prev_rate = Eigen::Vector2d::Zero();
+  double max_acc = 0.0, max_x = 0.0, min_y = 0.0;
+  for (int i = 0; i < 1000; ++i) {
+    ref.step(kDt);
+    max_acc = std::max(max_acc, ((ref.rate() - prev_rate) / kDt).cwiseAbs().maxCoeff());
+    prev_rate = ref.rate();
+    max_x = std::max(max_x, ref.value()[0]);
+    min_y = std::min(min_y, ref.value()[1]);
+  }
+  EXPECT_LE(max_acc, p.max_accel * (1 + 1e-9));
+  EXPECT_LE(max_x, 0.087 + 1e-12);
+  EXPECT_GE(min_y, -0.04 - 1e-5);
+  EXPECT_NEAR(ref.value()[0], 0.087, 1e-6);
+  EXPECT_NEAR(ref.value()[1], -0.04, 1e-6);
+}
+
+TEST(Reference, FollowsARampWithLittleLag)
+{
+  // the ball controller's own rate limit (0.3 rad/s) as a 60 Hz ramp
+  ReferenceShaper ref(test_support::reference_params());
+  ref.reset({-0.08, 0});
+  double max_lag = 0.0;
+  for (int k = 0; k < 250; ++k) {
+    const double t = k * kDt;
+    const double cmd = -0.08 + 0.3 * (std::floor(t * 60.0) / 60.0);
+    ref.set_command({cmd, 0.0});
+    ref.step(kDt);
+    if (t > 0.2) {max_lag = std::max(max_lag, std::abs(cmd - ref.value()[0]));}
+  }
+  // behind the held command by no more than the low-pass delay plus one 60 Hz period at that rate:
+  // the acceleration limit adds no lag of its own once the ramp is under way
+  const double tau = test_support::reference_params().smoothing_tau;
+  EXPECT_LT(max_lag, 0.3 * (tau + 1.0 / 60.0) + 5e-4);
+}

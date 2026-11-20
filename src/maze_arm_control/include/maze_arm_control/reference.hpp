@@ -1,7 +1,9 @@
 // The tilt reference the arm follows, shaped from the ~60 Hz /board/tilt_cmd:
-// clamp to max_tilt -> first-order low-pass (smoothing_tau) -> rate limit (max_rate).
-// The rate limit comes last so the hard limit holds on the reference itself; the low-pass makes the
-// rate (used as feed-forward) continuous instead of a spike at every 60 Hz command.
+// clamp to max_tilt -> first-order low-pass (smoothing_tau) -> second-order follower with a rate limit
+// (max_rate) and an acceleration limit (max_accel) that brakes in time to stop on its target.
+// The limits come last so the hard limits hold on the reference itself; the low-pass and the
+// acceleration limit make the rate (used as feed-forward) continuous instead of a spike at every 60 Hz
+// command, and without an abrupt stop at the end of a ramp, which a lagging arm would overshoot.
 #pragma once
 
 #include <Eigen/Dense>
@@ -13,6 +15,7 @@ struct ReferenceParams
 {
   double max_tilt;       // per axis, rad
   double max_rate;       // per axis, rad/s
+  double max_accel;      // per axis, rad/s^2
   double smoothing_tau;  // s
 };
 
@@ -35,6 +38,7 @@ private:
   ReferenceParams p_;
   Eigen::Vector2d command_ = Eigen::Vector2d::Zero();
   Eigen::Vector2d filtered_ = Eigen::Vector2d::Zero();
+  Eigen::Vector2d filtered_rate_ = Eigen::Vector2d::Zero();
   Eigen::Vector2d value_ = Eigen::Vector2d::Zero();
   Eigen::Vector2d rate_ = Eigen::Vector2d::Zero();
 };

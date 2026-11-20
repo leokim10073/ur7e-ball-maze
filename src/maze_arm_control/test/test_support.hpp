@@ -51,7 +51,7 @@ inline maze_arm_control::ReferenceParams reference_params()
 {
   const auto p = params();
   return {p["limits"]["max_tilt"].as<double>(), p["limits"]["max_rate"].as<double>(),
-    p["reference"]["smoothing_tau"].as<double>()};
+    p["reference"]["max_accel"].as<double>(), p["reference"]["smoothing_tau"].as<double>()};
 }
 
 inline maze_arm_control::ControllerParams controller_params()
