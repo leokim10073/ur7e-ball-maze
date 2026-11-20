@@ -5,8 +5,10 @@ calls ``update`` from a 60 Hz timer. Tests drive it the same way with
 simulated time.
 
 Tracking loss (contract 2 in docs/interfaces.md): no good ball state for
-``state_timeout`` during a run levels the board and stops the run. It stays
-stopped, even if states come back, until a new path starts the next run.
+``state_timeout`` levels the board (status ``timeout``); if good states come
+back the run carries on. Lost for ``abort_timeout`` during a run stops the
+run: it stays stopped, even if states come back, until a new path starts the
+next run.
 """
 
 import numpy as np
@@ -16,11 +18,16 @@ from .pid_law import PIDController
 
 
 class PidPathController:
-    def __init__(self, tracker, pid, rate_hz=60.0, state_timeout=0.2):
+    def __init__(self, tracker, pid, rate_hz=60.0, state_timeout=0.2,
+                 abort_timeout=2.0):
+        if abort_timeout < state_timeout:
+            raise ValueError(f'abort_timeout ({abort_timeout} s) must be at least '
+                             f'state_timeout ({state_timeout} s)')
         self.tracker = tracker
         self.pid = pid
         self.rate_hz = float(rate_hz)
         self.state_timeout = float(state_timeout)
+        self.abort_timeout = float(abort_timeout)
         self.pos = None
         self.vel = None
         self.t_state = None
@@ -44,7 +51,8 @@ class PidPathController:
                              max_tilt=lim['max_tilt'],
                              max_rate=lim['max_rate'])
         return cls(tracker, ctrl, rate_hz=p['rate_hz'],
-                   state_timeout=p['watchdog']['state_timeout'])
+                   state_timeout=p['watchdog']['state_timeout'],
+                   abort_timeout=p['watchdog']['abort_timeout'])
 
     def on_path(self, points):
         """Load a path. Returns False if it equals the current one (a
@@ -72,9 +80,9 @@ class PidPathController:
         dt = min(max(dt, 0.0), 2.0 * nominal)   # bound the step after a stall
         self.t_last = t
 
-        if self.t_state is not None and t - self.t_state > self.state_timeout \
+        if self.t_state is not None and t - self.t_state > self.abort_timeout \
                 and self.tracker.has_path:
-            self.stopped = True       # tracking lost during a run: stop it
+            self.stopped = True       # tracking lost for good during a run: stop it
 
         if self.stopped:
             self.status = 'stopped'
