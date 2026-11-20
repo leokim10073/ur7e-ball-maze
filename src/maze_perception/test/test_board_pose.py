@@ -147,3 +147,15 @@ def test_rectified_image_puts_markers_where_the_board_says(cfg, camera, detector
     for mid, c in found.items():
         want = board_to_rectified(cfg.board.marker_corners(mid)[:, :2], wide)
         assert np.max(np.linalg.norm(c - want, axis=1)) < 2.0  # px, at 0.5 mm per px
+
+
+def test_rectified_coverage(cfg, camera):
+    from maze_perception.board_pose import BoardPose, rectified_coverage
+
+    R, t = board_in_camera(height=1.0)
+    full = rectified_coverage(BoardPose(R, t, (0, 1, 2, 3), 0.0), camera, cfg.rectified)
+    assert full.shape == (600, 600) and full.all()
+    # shift the board so its far side leaves the image: that side is not covered, the rest is
+    R, t = board_in_camera(height=1.0, offset=(0.0, 0.5))
+    part = rectified_coverage(BoardPose(R, t, (0, 1, 2, 3), 0.0), camera, cfg.rectified)
+    assert part.any() and not part.all()

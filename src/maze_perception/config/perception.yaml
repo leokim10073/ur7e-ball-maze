@@ -23,3 +23,12 @@ rectified:
   x_range: [-0.150, 0.150]           # board area drawn in the rectified image, m (the 300 x 300 plate)
   y_range: [-0.150, 0.150]
   px_per_m: 2000.0                   # 2 px/mm -> 600 x 600 image; image x = board +x, image up = board +y
+
+ball:
+  # Found in the image rectified at z = radius (the ball center's plane, contract 2): a pixel whose
+  # color is at least `not_floor` (CIELAB distance) from the floor's counts as not floor; the ball
+  # is the disc of its size that is most not-floor compared with the ring around it.
+  radius: 0.007                      # m (sim.yaml ball.radius; the steel ball on the real board)
+  floor: [-0.141, 0.141, -0.141, 0.141]   # x_min, x_max, y_min, y_max inside the outer walls, m (CAD, checked by a test)
+  not_floor: 20.0                    # CIELAB distance; sim ball 29-60 from the floor, floor noise below
+  min_score: 0.5                     # disc minus ring share of not-floor pixels, 0..1; less -> no ball
