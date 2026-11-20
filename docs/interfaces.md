@@ -1,11 +1,11 @@
 # Interfaces v0
 
-This file is the contract between our own modules: what each one publishes, in which frame and units, how often, and what happens when something goes wrong. The message definitions will live in `src/maze_interfaces/msg/` (I2, #28); this file explains them.
+This file is the contract between our own modules: what each one publishes, in which frame and units, how often, and what happens when something goes wrong. The message definitions live in `src/maze_interfaces/msg/`; this file explains them.
 
 Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/camera/image_raw`, ...) are fixed by the lab driver and copied by the sim; see the README's [Simulation → Interfaces](../README.md#interfaces) table. Perception's board pose topics are in the README's [Perception](../README.md#perception) section.
 
 - Last updated: 2026-11-19
-- Status: v0, reviewed (work package [#26](https://github.com/leokim10073/ee206-project/issues/26), I1 [#27](https://github.com/leokim10073/ee206-project/issues/27))
+- Status: v0, reviewed
 - Owner: Leo Chen (from Jing Xu)
 - Reviewers: Zhuoren (perception), Steven (ball control), Chelsea (arm control), Leo (sim)
 
@@ -16,7 +16,7 @@ Robot-side topics (`/joint_states`, `/forward_velocity_controller/commands`, `/c
 - **Time.** Every message has a `std_msgs/Header`. In the sim every node runs with `use_sim_time:=true`.
 - **No magic numbers.** Ball radius, board size and tilt limits come from config or from a message, never from constants in code.
 - **Messages** live in the `maze_interfaces` package. Standard ROS types are used inside them (`nav_msgs/OccupancyGrid`, `nav_msgs/Path`, `geometry_msgs/Point`) so RViz and ROS tools work.
-- **Topic names** follow the ones ball control (#11) and arm control (#25) already use: `/maze/`* for the maze and route, `/ball/*` for the ball, `/board/*` for the board tilt.
+- **Topic names** follow the ones ball control (#6) and arm control (#14) already use: `/maze/`* for the maze and route, `/ball/*` for the ball, `/board/*` for the board tilt.
 - **One publisher per topic.** For example, the sim stand-in and the ball tracker both publish `/ball/state`; never run both.
 
 ## Overview
@@ -75,7 +75,7 @@ float64 radius   # m
 
 **The grid covers the maze area, not the whole board.** The board is larger: the ArUco markers sit at y = ±0.179 m (`maze_perception/config/perception.yaml`), outside the grid. Size the grid from the maze area. It matches perception's rectified image `/perception/board_image` (the same ±0.15 m square at 2 px/mm), so each 5 mm cell is a 10 × 10 px block of that image.
 
-**The goal is given, not detected.** Start and goal come from the level's CAD (`maze_CAD/scripts/levels.py`); the ArUco board pose places them in the image. The green ring around the goal pocket (#9) is only a visual cue: perception may check that it is where the CAD says, but the published `goal` is the CAD value.
+**The goal is given, not detected.** Start and goal come from the level's CAD (`maze_CAD/scripts/levels.py`); the ArUco board pose places them in the image. The green ring around the goal pocket (#4) is only a visual cue: perception may check that it is where the CAD says, but the published `goal` is the CAD value.
 
 **Rate:** once per maze, after the map is built. Published again only if the map changes (the planner then replans).
 
@@ -110,7 +110,7 @@ goal: {x: 0.12, y: -0.072, radius: 0.015}
 
 ## Contract 2: Ball state
 
-**Publisher:** ball tracker in `maze_perception` (Zhuoren, #23 P3/P4). Until it exists, ball control's stand-in turns `/sim/ball/pose` + `/sim/board/pose` into this message (#11).
+**Publisher:** ball tracker in `maze_perception` (Zhuoren, #13 P3/P4). Until it exists, ball control's stand-in turns `/sim/ball/pose` + `/sim/board/pose` into this message (#6).
 
 **Subscribers:** planner (to check the ball is still in its corridor), ball controllers (PID, LQR, MPC).
 
@@ -144,7 +144,7 @@ bool tracking_ok         # false = ball or board not found in this frame; x, y, 
 - One rule for subscribers: `tracking_ok` false for more than `tracking_timeout` (0.2 s, about 12 frames at 60 Hz; a config value, not a constant) → command a level board and stop the run (proposal: "predict briefly, then stop the trial if tracking remains lost").
 - No message for `tracking_timeout`: the tracker has died; same reaction.
 
-**How to check:** in the sim, convert `/sim/ball/pose` (world frame) into `maze_board` using `/sim/board/pose`; `x, y` must be within a few mm (#23's done-when).
+**How to check:** in the sim, convert `/sim/ball/pose` (world frame) into `maze_board` using `/sim/board/pose`; `x, y` must be within a few mm (#13's done-when).
 
 **Example message (L1 start cell, ball at rest):**
 
@@ -164,9 +164,9 @@ tracking_ok: true
 
 **Publisher:** planner.
 
-**Subscribers:** ball controllers: PID (#11) follows the path; constrained MPC (#15) also uses the corridors as constraints; MPCC (#16) uses the arc length as its progress variable.
+**Subscribers:** ball controllers: PID (#6) follows the path; constrained MPC (#10) also uses the corridors as constraints; MPCC (#11) uses the arc length as its progress variable.
 
-**Topic:** `/maze/route`. The planner also publishes the same path alone on `/maze/path` as a `nav_msgs/Path`, the topic `pid_node` already reads (#11) and RViz can draw.
+**Topic:** `/maze/route`. The planner also publishes the same path alone on `/maze/path` as a `nav_msgs/Path`, the topic `pid_node` already reads (#6) and RViz can draw.
 
 **Type:** `maze_interfaces/PlannedRoute`
 
@@ -232,9 +232,9 @@ pose_corridor: [0, 0, 1]
 
 ## Contract 4: Board tilt (command and measurement)
 
-**4a, command.** Publisher: ball controllers (Steven, #10). Subscriber: arm control (Chelsea, #25). Topic `/board/tilt_cmd`.
+**4a, command.** Publisher: ball controllers (Steven, #5). Subscriber: arm control (Chelsea, #14). Topic `/board/tilt_cmd`.
 
-**4b, measurement.** Publisher: arm control, from forward kinematics of `/joint_states` (#25). Subscribers: ball controllers, system ID logging (#12). Topic `/board/tilt_state`.
+**4b, measurement.** Publisher: arm control, from forward kinematics of `/joint_states` (#14). Subscribers: ball controllers, system ID logging (#7). Topic `/board/tilt_state`.
 
 **Type (both):** `maze_interfaces/BoardTilt`
 
@@ -251,9 +251,9 @@ float64 tilt_x           # rad
 float64 tilt_y           # rad
 ```
 
-**Why the sign is defined by its effect:** with right-hand rotations alone, a positive rotation about +y sends the ball to +x but a positive rotation about +x sends it to −y. Writing it as "the ball goes toward +x when `tilt_x > 0`" makes both axes match the ball model of #12, so a controller can write `tilt_x = k * error_x` with no sign flips. The rotation line is there for arm control.
+**Why the sign is defined by its effect:** with right-hand rotations alone, a positive rotation about +y sends the ball to +x but a positive rotation about +x sends it to −y. Writing it as "the ball goes toward +x when `tilt_x > 0`" makes both axes match the ball model of #7, so a controller can write `tilt_x = k * error_x` with no sign flips. The rotation line is there for arm control.
 
-**Angles, not rates:** ball control thinks in tilt angles; arm control turns the angle error into joint velocities (resolved-rate control, #25). The board tilts about its own center (the remote pivot); the board center should stay put.
+**Angles, not rates:** ball control thinks in tilt angles; arm control turns the angle error into joint velocities (resolved-rate control, #14). The board tilts about its own center (the remote pivot); the board center should stay put.
 
 **Rate:** one command per control step, about 60 Hz (the camera rate). Measured tilt at least as fast.
 
@@ -261,11 +261,11 @@ float64 tilt_y           # rad
 
 **Limits and edge cases:**
 
-- Both sides clamp: the controller to its own `max_tilt` and tilt-rate limits, arm control again to its hard limits (safety). Hard limits in arm control: 0.087 rad (5°) tilt, revisited after the grip test (#9), and 0.5 rad/s tilt rate. The controller stays below them so it never hits the clamp, e.g. 0.3 rad/s. All of these are config values and will be updated after system ID (#12).
-- No command for 200 ms: arm control stops the arm (zero joint velocities) and logs a warning, the same timeout as the PID watchdog (#11, #25).
+- Both sides clamp: the controller to its own `max_tilt` and tilt-rate limits, arm control again to its hard limits (safety). Hard limits in arm control: 0.087 rad (5°) tilt, revisited after the grip test (#4), and 0.5 rad/s tilt rate. The controller stays below them so it never hits the clamp, e.g. 0.3 rad/s. All of these are config values and will be updated after system ID (#7).
+- No command for 200 ms: arm control stops the arm (zero joint velocities) and logs a warning, the same timeout as the PID watchdog (#6, #14).
 - `tilt_state` comes from forward kinematics, not from `/perception/board_pose`, so it does not wait on the camera.
 
-**How to check:** in the sim, from `/sim/reset`, publish `tilt_x = +0.035` (2°) for 0.5 s: the ball (`/sim/ball/pose` converted to `maze_board`) moves toward +x, and `/sim/board/pose` shows the board center moving less than 5 mm (#25's done-when). Repeat for `tilt_y`.
+**How to check:** in the sim, from `/sim/reset`, publish `tilt_x = +0.035` (2°) for 0.5 s: the ball (`/sim/ball/pose` converted to `maze_board`) moves toward +x, and `/sim/board/pose` shows the board center moving less than 5 mm (#14's done-when). Repeat for `tilt_y`.
 
 **Example message:**
 
@@ -280,5 +280,5 @@ tilt_y: -0.010
 ## Changelog
 
 - v0 (2026-11-12): first draft. Contracts 1–4, `maze_interfaces` messages, CAD map tool.
-- v0 (2026-11-18): review on #31. Contract 1: goal from CAD, grid = maze area. Contract 2: one `tracking_timeout` (0.2 s), publish a prediction when the board is lost, ball center at z = r, controller predicts forward from `header.stamp`. Contract 4: hard limits 5° and 0.5 rad/s. Confirmed by Steven: `/maze/path` and the tilt sign.
+- v0 (2026-11-18): review. Contract 1: goal from CAD, grid = maze area. Contract 2: one `tracking_timeout` (0.2 s), publish a prediction when the board is lost, ball center at z = r, controller predicts forward from `header.stamp`. Contract 4: hard limits 5° and 0.5 rad/s. Confirmed by Steven: `/maze/path` and the tilt sign.
 - v0 (2026-11-19): Contract 1: the map always comes from the CAD, in the sim and on the real board; perception no longer maps the maze.
