@@ -8,6 +8,13 @@ ALPHA = [np.pi / 2, 0.0, 0.0, np.pi / 2, -np.pi / 2, 0.0]
 UR_JOINTS = ("shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
              "wrist_1_joint", "wrist_2_joint", "wrist_3_joint")
 
+def joints_from_state(names, positions):
+    """Joint angles in UR_JOINTS order from a JointState's names and positions (any order)."""
+    pos = dict(zip(names, positions))
+    missing = [j for j in UR_JOINTS if j not in pos]
+    if missing:
+        raise ValueError(f"joint state is missing {missing}")
+    return [pos[j] for j in UR_JOINTS]
 
 def dh(a, alpha, d, theta):
     ct, st, ca, sa = np.cos(theta), np.sin(theta), np.cos(alpha), np.sin(alpha)
@@ -46,3 +53,5 @@ def fk_board(q, grasp_xyz, grasp_rpy, handle_center):
     T_tool0_handle = transform(grasp_xyz, rpy_matrix(*grasp_rpy))
     T_handle_board = transform(-np.asarray(handle_center))  # board axes = handle axes
     return fk_tool0(q) @ T_tool0_handle @ T_handle_board
+
+

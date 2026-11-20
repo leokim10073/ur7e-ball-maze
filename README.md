@@ -206,9 +206,9 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: [#23](https://github.com/leokim10073/ee206-project/issues/23). So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board for mapping.
+`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that (library only, no node yet). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
 
-The geometry is a plain Python library (`board_pose.py`, no ROS) so the later ball tracker and mapper can use it directly; `board_tracker` is the ROS node around it.
+The geometry is a plain Python library (`board_pose.py`, no ROS) so the ball finder and the later ball tracker use it directly; `board_tracker` is the ROS node around it.
 
 ### Run (inside `maze-sim`, next to the sim)
 
@@ -227,7 +227,7 @@ On the robot, add `use_sim_time:=false`. Look at the rectified board with `ros2 
 
 The board frame is the sim's and the CAD's: origin at the plate center, z up, z = 0 on the maze floor, handle on −x, m. Every 10 s the node logs frames/s, the share of frames with a board pose, and ms per frame (about 4 ms at 1280×720).
 
-[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit and the rectified image area.
+[`config/perception.yaml`](src/maze_perception/config/perception.yaml) holds the marker layout (from `maze_CAD/levels/L1/sim/parts_report.json`, checked by a test), `min_markers`, the reprojection limit, the rectified image area, and the ball's size, floor area and thresholds.
 
 ### Accuracy
 
@@ -237,6 +237,21 @@ On the sim's own camera image, with the board tilted up to 6° and shifted up to
 - **OpenCV ≥ 4.7 is needed.** Ubuntu's OpenCV 4.5 found all four markers in only 0–7 of 8 synthetic board images, depending on the color around the stickers; 4.10 found them in 8 of 8. The `maze-sim` image now installs `opencv-contrib-python-headless` 4.10, so **rebuild the container** (see [Development environment](#development-environment-distrobox)); `test_markers.py` fails in an old one.
 - `DICT_4X4_50`, 40 mm markers: at the sim camera's 1 m a marker is about 45 px wide, which 4×4 handles with margin.
 
+### Ball (P3)
+
+`ball.py` (no ROS) finds the ball's center in one camera image, in the board frame: a raw measurement per frame, no filtering (that is P4).
+
+- **On the ball's plane.** The image is rectified at z = ball radius, where the ball's center lies ([contract 2](docs/interfaces.md)), so a rectified pixel is directly the (x, y) of a ball centered there. The z = 0 floor would put it off by up to a millimeter at the board's edge.
+- **Not floor, ball-shaped.** Each pixel's CIELAB distance from the floor color (median over the floor) is divided by `not_floor` (20) and capped at 1, so a black wall counts no more than the grey ball. A position scores the mean over a disc of the ball's radius minus the mean over the ring around it (to 1.5 radii), over the floor inside the outer walls only (`ball.floor`, checked against the CAD). A ball scores about 0.8; wall lines, wall ends and a gripper finger reaching over the wall fill only part of the disc and run on into the ring. The best position is the ball if it scores at least `min_score` (0.5).
+- **No ball color assumed.** The sim ball is grey on a tan floor; the real ball is steel on whatever the C922 makes of the real board. Tested also with dark steel on a light floor, a bright ball on a dark floor, and a green print.
+- **Walls don't push it.** The outer walls' dark inner faces lie just outside the floor in the image; counting them would push a ball against the wall about 2 mm off. `floor_outline()` places the wall foot as seen at the ball's height from the board pose, and only the floor inside it counts.
+- **Seen whole or not at all:** a ball partly outside the camera image is not reported (`rectified_coverage()` marks what the camera saw).
+- **Coarse to fine:** square filters at half resolution, then the disc at full resolution around the best spot, refined to a fraction of a pixel. About 10 ms per frame on a laptop CPU, rectification included.
+
+On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm, 180 random ball positions, half of them against a wall): mean error 0.4–0.6 mm, max 1.8 mm against `/sim/ball/pose`. Ball scores ≥ 0.6; with the ball off the board, the best anything else scores is 0.42 (the gripper's finger over the wall once the board is shifted in the grasp, then wall ends).
+
+Not yet: the node that publishes `/ball/state` (P4, with the Kalman filter); the threshold and `not_floor` need checking on the real board (P6).
+
 ### Tests (inside `maze-sim`)
 
 ```bash
@@ -244,11 +259,11 @@ colcon build && source install/setup.bash
 cd src/maze_perception && python3 -m pytest test
 ```
 
-`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares against ground truth; `test_node.py` runs `board_tracker` over ROS on a synthetic image.
+`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose and the ball against ground truth; `test_node.py` runs `board_tracker` over ROS on a synthetic image.
 
 ## CAD maze map
 
-`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz, so planning can run before perception maps the maze. It is also the answer key for perception's map. Work package: [#29](https://github.com/leokim10073/ee206-project/issues/29).
+`maze_cad_map` publishes a level's maze map from `maze_CAD/scripts/levels.py` on `/maze/map` (contract 1 in [`docs/interfaces.md`](docs/interfaces.md)), and the walls alone on `/maze/map/walls` for RViz. It is the only map source, in the sim and on the real board: the camera only finds the board pose and the ball.
 
 Run it from the repo root, inside `maze-sim` (the default `cad_scripts` path is relative to it):
 

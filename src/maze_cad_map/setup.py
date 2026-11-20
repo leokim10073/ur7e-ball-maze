@@ -20,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer="Jing Xu",
     maintainer_email="jing_xu1112@berkeley.edu",
-    description="Publishes a maze level's MazeMap from the CAD source, as a stand-in for perception P2.",
+    description="Publishes a maze level's MazeMap from the CAD source.",
     license="MIT",
     tests_require=["pytest"],
 )
