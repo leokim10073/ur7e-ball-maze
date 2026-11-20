@@ -16,6 +16,7 @@ add_library(maze_planning_core STATIC
   src/grid_planner.cpp
   src/shortcut.cpp
   src/corridors.cpp
+  src/route.cpp
 )
 target_compile_features(maze_planning_core PUBLIC cxx_std_17)
 set_target_properties(maze_planning_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -45,7 +46,7 @@ if(BUILD_TESTING)
   target_compile_definitions(test_l1 PRIVATE MAZE_PLANNING_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/test/data")
 
   # tests that also use the library's internal helpers (src/geometry.hpp) and the L1 fixture
-  foreach(t test_shortcut test_corridors)
+  foreach(t test_shortcut test_corridors test_route)
     ament_add_gtest(${t} test/${t}.cpp)
     target_link_libraries(${t} maze_planning_core yaml-cpp)
     target_include_directories(${t} PRIVATE src)

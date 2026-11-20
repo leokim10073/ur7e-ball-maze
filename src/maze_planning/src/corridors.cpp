@@ -24,19 +24,21 @@ bool box_free(const Grid & g, const std::vector<uint8_t> & blocked, int r0, int 
   return true;
 }
 
+// split line[i..j] at its middle cell until the box of its ends is free; the split cells stay on
+// the original line, whose cells and corners were checked when it was straightened
 void split(
-  const Grid & g, const std::vector<uint8_t> & blocked, Cell a, Cell b,
-  std::vector<std::array<int, 4>> & out)
+  const Grid & g, const std::vector<uint8_t> & blocked, const std::vector<Cell> & line, size_t i,
+  size_t j, std::vector<std::array<int, 4>> & out)
 {
-  const auto line = detail::line_cells(a, b);
+  const Cell a = line[i], b = line[j];
   // a single step has no middle cell to split at; without corner cutting its box is free anyway
-  if (line.size() <= 2 || box_free(g, blocked, a[0], a[1], b[0], b[1])) {
+  if (j - i <= 1 || box_free(g, blocked, a[0], a[1], b[0], b[1])) {
     out.push_back({a[0], a[1], b[0], b[1]});
     return;
   }
-  const Cell mid = line[line.size() / 2];
-  split(g, blocked, a, mid, out);
-  split(g, blocked, mid, b, out);
+  const size_t mid = i + (j - i) / 2;
+  split(g, blocked, line, i, mid, out);
+  split(g, blocked, line, mid, j, out);
 }
 
 }  // namespace
@@ -47,7 +49,8 @@ std::vector<std::array<int, 4>> split_segments(
 {
   std::vector<std::array<int, 4>> out;
   for (size_t k = 1; k < vertices.size(); ++k) {
-    split(grid, blocked, vertices[k - 1], vertices[k], out);
+    const auto line = detail::line_cells(vertices[k - 1], vertices[k]);
+    split(grid, blocked, line, 0, line.size() - 1, out);
   }
   return out;
 }

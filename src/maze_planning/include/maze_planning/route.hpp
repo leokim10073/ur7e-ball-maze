@@ -37,7 +37,7 @@ std::vector<std::array<int, 2>> shortcut_cells(
   const std::vector<std::array<int, 2>> & cells, const PlannerParams & params);
 
 // Segments {r0, c0, r1, c1} between consecutive vertices, each split at the middle cell of its
-// line, recursively, until the box spanned by its two end cells has no blocked cell.
+// line (always a cell of the vertices' own line), recursively, until the box spanned by its two end cells has no blocked cell.
 // Consecutive segments share an end cell.
 std::vector<std::array<int, 4>> split_segments(
   const Grid & grid, const std::vector<uint8_t> & blocked,
@@ -48,5 +48,15 @@ std::vector<std::array<int, 4>> split_segments(
 // are the centers of the outermost cells. The starting box must be free.
 Corridor grow_corridor(
   const Grid & grid, const std::vector<uint8_t> & blocked, int r0, int c0, int r1, int c1);
+
+// The route along a planned GridPath: straightened (shortcut_cells), split into free boxes
+// (split_segments), one grown corridor per segment, sampled every point_spacing. A pushed start's
+// lead-in (the path's leading blocked cells) stays one straight segment whose corridor is just
+// its cells' box: the recovery region the ball is in. The first and last corridors also take in
+// the exact start and the goal center. A path that was not found, or whose points do not match
+// its cells, gives an empty Route. Throws std::invalid_argument on a bad grid or bad params.
+Route build_route(
+  const Grid & grid, const std::vector<Circle> & holes, const GridPath & path,
+  const PlannerParams & params = PlannerParams{});
 
 }  // namespace maze_planning
