@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from conftest import PKG, REPO
-from maze_perception.ball import find_ball
+from maze_perception.ball import WallGrid, find_ball, wall_mask
 from maze_perception.board_pose import board_to_rectified
 from maze_perception.config import load_perception_config
 
@@ -31,6 +31,13 @@ def cad_walls(level="L1"):
     half = params.P["base"] / 2
     return {name: ((x - half) / 1000, (x + w - half) / 1000, (y - half) / 1000, (y + h - half) / 1000)
             for name, (x, y, w, h) in params.wall_rects_named(levels.LEVELS[level])}
+
+
+def cad_wall_grid(level="L1"):
+    """The walls grid maze_cad_map publishes on /maze/map, as the ball finder takes it."""
+    cad_map = pytest.importorskip("maze_cad_map.cad_map")
+    m = cad_map.build_map(REPO / "maze_CAD" / "scripts", level)
+    return WallGrid(cells=m.grid != 0, origin=m.origin, resolution=m.resolution)
 
 
 def test_floor_matches_cad(cfg):
@@ -148,7 +155,7 @@ def test_camera_noise(cfg):
 def test_ball_settings_are_checked(tmp_path):
     src = (PKG / "config" / "perception.yaml").read_text()
     for old, new, msg in [("min_score: 0.5", "min_score: 1.5", "ball.min_score"),
-                          ("not_floor: 20.0", "not_floor: 0", "ball.radius and ball.not_floor"),
+                          ("not_floor: 20.0", "not_floor: 0", "ball.radius, ball.wall_height and ball.not_floor"),
                           ("radius: 0.007 ", "radius: 0.001 ", "ball.radius is 2.0 px"),
                           ("floor: [-0.141, 0.141,", "floor: [-0.2, 0.141,", "inside the rectified area"),
                           ("floor: [-0.141, 0.141,", "floor: [0.141, -0.141,", "ball.floor x")]:
@@ -168,7 +175,70 @@ def test_settings_match_sim(cfg):
     assert cfg.ball.radius == pytest.approx(yaml.safe_load(path.read_text())["ball"]["radius"])
 
 
-def test_lower_threshold_still_one_answer(cfg):
+def test_lower_threshold_still_one_answer(cfg, camera):
     # with no threshold the best guess on an empty board is still reported with its low score
-    b = find_ball(scene(cfg), replace(cfg.ball, min_score=-1.0), cfg.rectified)
+    walls = wall_mask(_top_down(), camera, cad_wall_grid(), cfg.ball, cfg.rectified, cfg.ball.radius)
+    b = find_ball(scene(cfg), replace(cfg.ball, min_score=-1.0), cfg.rectified, walls=walls)
     assert b is not None and b.score < 0.3
+
+
+def test_wall_height_matches_cad(cfg):
+    assert cfg.ball.wall_height == pytest.approx(_cad_module("maze_params").P["wall_h"] / 1000)
+
+
+def _top_down(R_t=None, height=1.0):
+    from conftest import board_in_camera
+    from maze_perception.board_pose import BoardPose
+
+    R, t = board_in_camera(height=height) if R_t is None else R_t
+    return BoardPose(R, t, (0, 1, 2, 3), 0.0)
+
+
+def test_wall_mask_covers_the_walls_as_seen(cfg, camera):
+    # camera straight above the board center: a wall's footprint, and its top spreading outward
+    # from the center by height x tan(view angle); nothing on the open floor
+    walls = cad_wall_grid()
+    pose = _top_down()
+    mask = wall_mask(pose, camera, walls, cfg.ball, cfg.rectified, cfg.ball.radius)
+    for name, (x0, x1, y0, y1) in cad_walls().items():
+        (c, r), = board_to_rectified(np.array([[(x0 + x1) / 2, (y0 + y1) / 2]]), cfg.rectified)
+        assert mask[int(r), int(c)], name
+    (c, r), = board_to_rectified(np.array([[-0.12, 0.12]]), cfg.rectified)  # the start cell's center
+    assert not mask[int(r), int(c)]
+    assert 0.15 < mask.mean() < 0.4
+
+
+def test_wall_end_is_not_the_ball(cfg, camera):
+    # a dark blob filling the end of a wall (its end face and top, as the sim shows it): left out
+    # with the walls
+    walls = cad_wall_grid()
+    pose = _top_down()
+    name, (x0, x1, y0, y1) = next((k, v) for k, v in cad_walls().items() if k.startswith("v_"))
+    img = scene(cfg)
+    (c, r), = board_to_rectified(np.array([[(x0 + x1) / 2, y0 + 0.003]]), cfg.rectified)
+    yy, xx = np.mgrid[:img.shape[0], :img.shape[1]]
+    img[np.hypot(xx - c, yy - r) <= 6] = BLACK  # 3 mm: the wall's half width
+    best = find_ball(img, replace(cfg.ball, min_score=-1.0), cfg.rectified,
+                     walls=wall_mask(pose, camera, walls, cfg.ball, cfg.rectified, cfg.ball.radius))
+    assert best is None or best.score < 0.3, name
+
+
+@pytest.mark.parametrize("noise", [10.0, 20.0])
+def test_heavy_camera_noise(cfg, noise):
+    ball = (0.0312, -0.0273)
+    for seed in range(3):
+        b = find_ball(scene(cfg, ball, noise=noise, seed=seed), cfg.ball, cfg.rectified)
+        assert b is not None and _err_mm(b, ball) < 0.5
+
+
+@pytest.mark.parametrize("quality", [50, 80])
+def test_jpeg(cfg, quality):
+    # the C922 sends MJPEG: color at half resolution blurs the ball's edge
+    import cv2
+
+    ball = (0.0312, -0.0273)
+    img = scene(cfg, ball)
+    img = cv2.imdecode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])[1], cv2.IMREAD_UNCHANGED)
+    b = find_ball(img, cfg.ball, cfg.rectified)
+    assert b is not None and _err_mm(b, ball) < 0.5 and b.score > 0.6
+

@@ -206,7 +206,7 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that; P4, the ball's state (position, velocity, tracking flag) on `/ball/state` ([contract 2](docs/interfaces.md)). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
+`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that; P4, the ball's state (position, velocity, tracking flag) on `/ball/state` ([contract 2](docs/interfaces.md)); P5, robustness to webcam images and offline replay of rosbags. The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
 
 The geometry, the ball finder and the filter are plain Python libraries (`board_pose.py`, `ball.py`, `ball_filter.py`, no ROS). `ball_tracker` is the ROS node around them: per camera frame it finds the markers once, then the board pose, the ball and the filtered state. `board_tracker` is the same without the ball, for the board pose alone.
 
@@ -214,10 +214,10 @@ The geometry, the ball finder and the filter are plain Python libraries (`board_
 
 ```bash
 colcon build && source install/setup.bash
-ros2 launch maze_perception perception.launch.py
+ros2 launch maze_perception perception.launch.py   # from the repo root
 ```
 
-On the robot, add `use_sim_time:=false`. Look at the rectified board with `ros2 run rqt_image_view rqt_image_view /perception/board_image`.
+This also starts `maze_cad_map` for `/maze/map`, which `ball_tracker` needs to look for the ball; pass `with_map:=false` if it already runs. On the robot, add `use_sim_time:=false`. Look at the rectified board with `ros2 run rqt_image_view rqt_image_view /perception/board_image`.
 
 | Topic | Type | Notes |
 |---|---|---|
@@ -243,15 +243,16 @@ On the sim's own camera image, with the board tilted up to 6° and shifted up to
 `ball.py` (no ROS) finds the ball's center in one camera image, in the board frame: a raw measurement per frame, no filtering (that is P4).
 
 - **On the ball's plane.** The image is rectified at z = ball radius, where the ball's center lies ([contract 2](docs/interfaces.md)), so a rectified pixel is directly the (x, y) of a ball centered there. The z = 0 floor would put it off by up to a millimeter at the board's edge.
-- **Not floor, ball-shaped.** Each pixel's CIELAB distance from the floor color (median over the floor) is divided by `not_floor` (20) and capped at 1, so a black wall counts no more than the grey ball. A position scores the mean over a disc of the ball's radius minus the mean over the ring around it (to 1.5 radii), over the floor inside the outer walls only (`ball.floor`, checked against the CAD). A ball scores about 0.8; wall lines, wall ends and a gripper finger reaching over the wall fill only part of the disc and run on into the ring. The best position is the ball if it scores at least `min_score` (0.5).
+- **Only the floor counts:** inside the outer walls (`ball.floor`, checked against the CAD), inside the camera image, and not where a wall of the maze map (`/maze/map`) shows, from its foot to its top (`wall_height`, 18 mm) as the camera sees it. The ball is never in a wall; wall ends and blurred wall lines would otherwise look like it.
+- **Not floor, ball-shaped.** The image is smoothed a little (0.5 mm). Each pixel's CIELAB distance from the floor color (median over the floor), less twice the floor's own spread (camera noise, JPEG, uneven light), is divided by `not_floor` (20) and capped at 1, so a black wall counts no more than the grey ball. The ball is where a disc of its radius is most unlike the floor compared with the ring around it. Whether it is the ball is scored there on its core (0.8 radii) against the ring 1.2–1.7 radii out, leaving out the edge band that blur, JPEG's half-resolution color and motion smear. A ball scores about 0.8; at least `min_score` (0.5) counts.
 - **No ball color assumed.** The sim ball is grey on a tan floor; the real ball is steel on whatever the C922 makes of the real board. Tested also with dark steel on a light floor, a bright ball on a dark floor, and a green print.
 - **Walls don't push it.** The outer walls' dark inner faces lie just outside the floor in the image; counting them would push a ball against the wall about 2 mm off. `floor_outline()` places the wall foot as seen at the ball's height from the board pose, and only the floor inside it counts.
 - **Seen whole or not at all:** a ball partly outside the camera image is not reported (`rectified_coverage()` marks what the camera saw).
 - **Coarse to fine:** square filters at half resolution, then the disc at full resolution around the best spot, refined to a fraction of a pixel. About 10 ms per frame on a laptop CPU, rectification included.
 
-On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm, 180 random ball positions, half of them against a wall): mean error 0.4–0.6 mm, max 1.8 mm against `/sim/ball/pose`. Ball scores ≥ 0.6; with the ball off the board, the best anything else scores is 0.42 (the gripper's finger over the wall once the board is shifted in the grasp, then wall ends).
+On the sim's camera image (L1, board tilted up to 6° and shifted up to 2 cm, random ball positions, half of them against a wall): median error 0.5 mm, max 1.8 mm against `/sim/ball/pose`. Ball scores ≥ 0.78; with the ball off the board, nothing scores above 0.31 (a wall end) with the board held as gripped. Slipped 2 cm in the grasp, a gripper finger reaches over the outer wall and scores up to 0.53, a false ball; the real grasp does not slip like that (the sim's holds within 0.5°), and while the ball is tracked the filter's gate ignores it.
 
-Not yet: the threshold and `not_floor` need checking on the real board (P6).
+Not yet: the threshold and `not_floor` need checking on the real board (P6). Robustness to camera effects: P5 below.
 
 ### Ball state (P4)
 
@@ -272,6 +273,37 @@ Not yet: the threshold and `not_floor` need checking on the real board (P6).
 
 In the sim (arm tilting the board up to 4° about two wrist joints every 0.7 s, ball rolling into walls and corners at up to 0.15 m/s, 62.5 Hz frames): position error 1.3 mm rms (2.4 mm max), speed error 25 mm/s rms, up to ~0.2 m/s for a frame or two when it hits a wall. Most of the position error is the ball against a wall: there the measurement is ~1.5 mm off the wall (P3 leaves the wall's dark faces out, and with them the ball's outermost millimeter).
 
+### Robustness and offline replay (P5)
+
+**Degraded camera images.** The sim's own images (L1, 24 renders: tilted and slipped board, 16 with the ball), degraded the ways a webcam is, through the whole pipeline (markers, pose, ball, with the CAD walls):
+
+| Degradation | Board found | Ball found | Error median / max | Lowest ball score |
+|---|---|---|---|---|
+| none | 24/24 | 16/16 | 0.5 / 1.8 mm | 0.84 |
+| noise σ 10 / 20 gray levels | 24/24 | 16/16 | 0.6 / 1.5 mm | 0.73 |
+| defocus σ 1 / 2 px | 24/24 | 16/16 | 1.1–1.9 / 3.8 mm | 0.61 |
+| JPEG quality 50–90 (the C922 sends MJPEG) | 24/24 | 16/16 | 0.8–1.1 / 2.2 mm | 0.66 |
+| ball smeared 3–15 px (0.2–1 m/s in a 16 ms exposure) | 24/24 | 16/16 | 0.8–2 / 5.5 mm | 0.56 |
+| darker ×0.3–0.5, gamma 0.5–2, white balance off | 24/24 | 16/16 | ≤ 0.8 / 1.9 mm | 0.52 |
+| light varying 0.3–1.5× across the board | 24/24 | 16/16 | 0.6 / 1.6 mm | 0.77 |
+| all at once, mildly (light 0.7–1.1, defocus 1 px, noise 6, JPEG 70) | 24/24 | 16/16 | 1.1 / 2.1 mm | 0.83 |
+
+With no ball and the board held as gripped, nothing scored above 0.40 under any of these. What these fixes were for: before P5, noise σ 20 lost every ball, JPEG lost some even at quality 90, and a defocused wall end was taken for the ball.
+
+Where it stops, to be handled on the camera side in P6:
+- **Focus.** From defocus σ 2.5 px the ArUco cells (about 7 px at 1 m) blur together and the board is lost; no detector setting brings them back. Turn the C922's autofocus off and fix the focus at the board.
+- **Overexposure.** At twice the exposure the tan floor and the grey ball both clip to white and the ball is gone. Set the exposure by hand so the floor stays below saturation (the sim camera already overexposes the board a little, ee206-project#20).
+- **Camera shake** of 10 px in an exposure loses the markers. The board moves far less than that between frames; only the ball smears, which is fine up to 15 px.
+
+**Offline replay.** `replay_bag` runs `ball_tracker`'s per-frame work over a rosbag, offline, so a recording from the sim or the robot can be rerun after every change:
+
+```bash
+ros2 bag record /camera/image_raw /camera/camera_info /maze/map /sim/ball/pose /sim/board/pose   # sim
+ros2 run maze_perception replay_bag <bag> --csv replay.csv
+```
+
+It takes raw or compressed images. The walls come from the bag's `/maze/map`, else from the CAD (`--cad-scripts`, `--level`). With the sim's `/sim/ball/pose` and `/sim/board/pose` in the bag, each frame gets the ball's true position in the board frame and the errors are summed up. The CSV has one row per frame: board found, the raw measurement and its score, the filtered state, `tracking_ok`, and the truth. The bag is read twice (first all but the images, then image by image), so a long bag never has to fit in memory.
+
 ### Tests (inside `maze-sim`)
 
 ```bash
@@ -279,7 +311,7 @@ colcon build && source install/setup.bash
 cd src/maze_perception && python3 -m pytest test
 ```
 
-`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose, the ball and the ball state of a rolling ball against ground truth; `test_node.py` runs `board_tracker` and `ball_tracker` over ROS on synthetic images.
+`test_sim_render.py` renders the MuJoCo scene offline (no ROS) and compares the board pose, the ball and the ball state of a rolling ball against ground truth; `test_node.py` runs `board_tracker` and `ball_tracker` over ROS on synthetic images; `test_replay.py` writes a rosbag and replays it (the bag part needs ROS).
 
 ## CAD maze map
 

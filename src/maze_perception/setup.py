@@ -18,6 +18,7 @@ setup(
     entry_points={"console_scripts": [
         "board_tracker = maze_perception.board_node:main",
         "ball_tracker = maze_perception.ball_node:main",
+        "replay_bag = maze_perception.replay:main",
     ]},
     zip_safe=True,
     maintainer="Zhuoren Li",
