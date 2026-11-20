@@ -3,6 +3,8 @@
 #include "maze_planning/blocked.hpp"
 #include "maze_planning/clearance.hpp"
 
+#include <stdexcept>
+
 using namespace maze_planning;
 
 namespace
@@ -63,4 +65,10 @@ TEST(BlockedTest, ObstacleAlwaysBlocked)
   const auto b = blocked_cells(g, clearance_map(g), {}, p);
   EXPECT_EQ(at(b, g, 4, 4), 1);
   EXPECT_EQ(at(b, g, 4, 5), 0);
+}
+
+TEST(BlockedTest, RejectsMismatchedClearance)
+{
+  const Grid g = free_grid(5, 5);
+  EXPECT_THROW(blocked_cells(g, {}, {}, PlannerParams{}), std::invalid_argument);
 }

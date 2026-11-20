@@ -62,6 +62,7 @@ GridPath plan_grid_path(
   const Circle & goal, const PlannerParams & params)
 {
   GridPath out;
+  validate(params);
   const auto clearance = clearance_map(grid);  // validates the grid
   const auto blocked = blocked_cells(grid, clearance, holes, params);
   const int w = grid.width, h = grid.height;

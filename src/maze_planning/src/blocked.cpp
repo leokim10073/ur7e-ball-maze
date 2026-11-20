@@ -1,6 +1,7 @@
 #include "maze_planning/blocked.hpp"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace maze_planning
 {
@@ -10,6 +11,10 @@ std::vector<uint8_t> blocked_cells(
   const PlannerParams & params)
 {
   validate(grid);
+  validate(params);
+  if (clearance.size() != grid.data.size()) {
+    throw std::invalid_argument("clearance map size does not match the grid");
+  }
   const double wall_clearance = params.ball_radius + params.wall_margin;
   std::vector<uint8_t> blocked(grid.data.size(), 0);
   for (int r = 0; r < grid.height; ++r) {

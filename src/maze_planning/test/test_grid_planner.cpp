@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <stdexcept>
 
 #include "maze_planning/grid_planner.hpp"
 
@@ -173,4 +174,20 @@ TEST(GridPlannerTest, NonSquareRowsAndCols)
     EXPECT_GE(pt[1], 0.0);
     EXPECT_LE(pt[1], 0.1);
   }
+}
+
+TEST(GridPlannerTest, RejectsBadParams)
+{
+  const Grid g = channel();
+  const auto start = cell_center(g, 5, 2);
+  const Circle goal = goal_at(g, 5, 37);
+  PlannerParams zero_preferred;
+  zero_preferred.preferred_clearance = 0.0;
+  EXPECT_THROW(plan_grid_path(g, {}, start, goal, zero_preferred), std::invalid_argument);
+  PlannerParams negative_weight;
+  negative_weight.clearance_weight = -1.0;
+  EXPECT_THROW(plan_grid_path(g, {}, start, goal, negative_weight), std::invalid_argument);
+  PlannerParams negative_radius;
+  negative_radius.ball_radius = -0.01;
+  EXPECT_THROW(plan_grid_path(g, {}, start, goal, negative_radius), std::invalid_argument);
 }

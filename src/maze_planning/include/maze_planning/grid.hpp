@@ -52,4 +52,8 @@ std::array<double, 2> cell_center(const Grid & grid, int row, int col);
 // that does not match width * height
 void validate(const Grid & grid);
 
+// throws std::invalid_argument unless ball_radius, the margins and clearance_weight are finite and
+// >= 0 and preferred_clearance is finite and > 0
+void validate(const PlannerParams & params);
+
 }  // namespace maze_planning

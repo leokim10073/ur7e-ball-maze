@@ -1,5 +1,6 @@
 #include "maze_planning/grid.hpp"
 
+#include <cmath>
 #include <stdexcept>
 
 namespace maze_planning
@@ -25,6 +26,18 @@ void validate(const Grid & grid)
   }
   if (grid.data.size() != static_cast<size_t>(grid.width) * static_cast<size_t>(grid.height)) {
     throw std::invalid_argument("grid data size does not match width * height");
+  }
+}
+
+void validate(const PlannerParams & params)
+{
+  for (double v : {params.ball_radius, params.wall_margin, params.hole_margin, params.clearance_weight}) {
+    if (!(std::isfinite(v) && v >= 0.0)) {
+      throw std::invalid_argument("ball radius, margins and clearance weight must be finite and >= 0");
+    }
+  }
+  if (!(std::isfinite(params.preferred_clearance) && params.preferred_clearance > 0.0)) {
+    throw std::invalid_argument("preferred clearance must be finite and > 0");
   }
 }
 
