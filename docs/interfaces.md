@@ -195,7 +195,7 @@ float64 y_max
 
 **Why corridors bound the ball center:** the MPC constrains the ball state `(x, y)`, which is the center. If the planner already subtracts the ball radius and a margin from the walls, the controller needs no geometry of its own, and the clearance lives in one place (planner config).
 
-**Rate:** on every plan or replan: once when the map and a ball state are available, then each time the ball leaves its corridor.
+**Rate:** on every plan or replan: once when the map and a ball state are available, then on each replan (see the replan rule under Edge cases).
 
 **QoS:** latched (reliable, keep last 1, transient local), so a controller that restarts gets the current route.
 
@@ -203,6 +203,9 @@ float64 y_max
 
 - No route exists: publish `status = STATUS_NO_PATH` with empty `path` and `corridors`; ball control keeps the board level.
 - Ball leaves its corridor: the planner replans from the ball's position and publishes a new route with `plan_id + 1`. A controller seeing a new `plan_id` starts tracking from the new path's start.
+- Replan rule in numbers (`maze_planning/config/planner.yaml`): the ball is outside every corridor by more than `replan.outside_margin` (3 mm) for `replan.outside_frames` (3) consecutive ball states with `tracking_ok`; states with `tracking_ok = false` are ignored. A new map also replans. After `STATUS_NO_PATH` the planner retries every `replan.no_path_retry_period` (0.5 s) and publishes only when a path is found, so `plan_id` does not climb while there is none.
+- Ball too close to a wall (pushed), or in a spot cut off from the goal by a gap narrower than the wall clearance: the path first leads the ball out to safe space from which the goal is reachable, by the shortest way that crosses no wall and no hole and never squeezes into a gap narrower than the ball. The first corridors cover that way out at whole-cell size and are not reduced by the wall clearance (the ball is already inside it); every later corridor is.
+- Known risk: only "outside every corridor" replans, so a ball that rolls back into an earlier corridor of the same route does not; controllers own progress along the path.
 - No route received yet: ball control keeps the board level.
 
 **How to check:** on the CAD map of L1, the route passes through the cells of `levels.py`'s `path`; every path pose lies inside its `pose_corridor` corridor; consecutive corridors overlap; in RViz the path on `/maze/path` stays inside the maze.
