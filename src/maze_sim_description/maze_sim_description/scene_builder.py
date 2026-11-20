@@ -1,5 +1,6 @@
-"""Compose the MuJoCo scene: Menagerie UR5e (= UR7e kinematics) with a Robotiq 2F-85 on the
-flange, the maze board held in the gripper, the ball, the overhead camera, and keyframe "start".
+"""Compose the MuJoCo scene: Menagerie UR5e, with the UR7e link lengths from ur_description, and a
+Robotiq 2F-85 on the flange, the maze board held in the gripper, the ball, the overhead camera,
+and keyframe "start".
 
 The arm's position servos are replaced by torque (motor) actuators named after the joints, so
 mujoco_ros2_control's PIDs can serve both position and velocity command interfaces. The gripper
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+import yaml
 
 from .board_assets import board_mjcf_fragment, load_board_assets
 from .camera_math import matrix_to_quat, mujoco_camera_quaternion
@@ -53,6 +55,31 @@ def _menagerie_dir():
     from ament_index_python.packages import get_package_share_directory
 
     return Path(get_package_share_directory("maze_sim_description")) / "mjcf" / "menagerie"
+
+
+def ur_dh_parameters(ur_type):
+    """The UR's DH lengths (d1, a2, a3, d4, d5, d6), m, from ur_description's
+    default_kinematics.yaml for ur_type: the same file format a robot's own calibration produces."""
+    from ament_index_python.packages import get_package_share_directory
+
+    path = Path(get_package_share_directory("ur_description")) / "config" / ur_type / "default_kinematics.yaml"
+    k = yaml.safe_load(path.read_text())["kinematics"]
+    return dict(d1=k["shoulder"]["z"], a2=-k["forearm"]["x"], a3=-k["wrist_1"]["x"],
+                d4=k["wrist_1"]["z"], d5=-k["wrist_2"]["y"], d6=k["wrist_3"]["y"])
+
+
+def _set_ur_link_lengths(spec, dh):
+    """Menagerie's UR5e rounds the link lengths (0.163 vs 0.1625 m, ...); set the real ones. The
+    shoulder, elbow and wrist_2 offsets lie along parallel joint axes, so only their sum (d4) matters:
+    keep Menagerie's first two (they place the meshes) and put the rest in wrist_2."""
+    spec.body("shoulder_link").pos = [0.0, 0.0, dh["d1"]]
+    forearm = spec.body("forearm_link")
+    forearm.pos = [0.0, forearm.pos[1], dh["a2"]]
+    spec.body("wrist_1_link").pos = [0.0, 0.0, dh["a3"]]
+    elbow_offset = spec.body("upper_arm_link").pos[1] + forearm.pos[1]
+    spec.body("wrist_2_link").pos = [0.0, dh["d4"] - elbow_offset, 0.0]
+    spec.body("wrist_3_link").pos = [0.0, 0.0, dh["d5"]]
+    spec.site("attachment_site").pos = [0.0, dh["d6"], 0.0]
 
 
 def _absolute_meshes(spec, mesh_dir):
@@ -127,6 +154,7 @@ def _compose(cfg, board):
     for joint in UR_JOINTS:
         spec.joint(joint).actgravcomp = True
 
+    _set_ur_link_lengths(spec, ur_dh_parameters(cfg.robot.ur_type))
     flange = spec.site("attachment_site")
     spec.body("wrist_3_link").add_site(name="tool0", pos=flange.pos, quat=flange.quat)
 
