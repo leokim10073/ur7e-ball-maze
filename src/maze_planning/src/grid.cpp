@@ -21,8 +21,11 @@ void validate(const Grid & grid)
   if (grid.width <= 0 || grid.height <= 0) {
     throw std::invalid_argument("grid has no cells");
   }
-  if (!(grid.resolution > 0.0)) {
-    throw std::invalid_argument("grid resolution must be positive");
+  if (!(std::isfinite(grid.resolution) && grid.resolution > 0.0)) {
+    throw std::invalid_argument("grid resolution must be finite and positive");
+  }
+  if (!std::isfinite(grid.origin_x) || !std::isfinite(grid.origin_y)) {
+    throw std::invalid_argument("grid origin must be finite");
   }
   if (grid.data.size() != static_cast<size_t>(grid.width) * static_cast<size_t>(grid.height)) {
     throw std::invalid_argument("grid data size does not match width * height");

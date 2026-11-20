@@ -52,16 +52,24 @@ void PlannerNode::on_map(const maze_interfaces::msg::MazeMap & msg)
 {
   Map map;
   map.grid = to_grid(msg.walls);
-  try {
-    validate(map.grid);
-  } catch (const std::invalid_argument & e) {
-    RCLCPP_ERROR(get_logger(), "ignoring map from '%s': %s", msg.source.c_str(), e.what());
-    return;  // the previous map stays
-  }
   for (const auto & h : msg.holes) {
     map.holes.push_back(to_circle(h));
   }
   map.goal = to_circle(msg.goal);
+  try {
+    validate(map.grid);
+    for (const auto & c : map.holes) {
+      if (!std::isfinite(c.x) || !std::isfinite(c.y) || !(std::isfinite(c.radius) && c.radius >= 0.0)) {
+        throw std::invalid_argument("a hole is not finite or has a negative radius");
+      }
+    }
+    if (!std::isfinite(map.goal.x) || !std::isfinite(map.goal.y)) {
+      throw std::invalid_argument("the goal is not finite");
+    }
+  } catch (const std::invalid_argument & e) {
+    RCLCPP_ERROR(get_logger(), "ignoring map from '%s': %s", msg.source.c_str(), e.what());
+    return;  // the previous map stays
+  }
   map_ = map;
   RCLCPP_INFO(get_logger(), "map from '%s': %d x %d cells", msg.source.c_str(), map.grid.width, map.grid.height);
   if (ball_) {

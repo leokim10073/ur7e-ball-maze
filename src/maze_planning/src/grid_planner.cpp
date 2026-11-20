@@ -36,15 +36,43 @@ GridPath plan_grid_path(
     return out;
   }
 
-  // a ball already too close to a wall first takes the shortest way through passable cells to the
-  // nearest allowed cell (Dijkstra; a straight line could cross a wall)
+  // allowed cells A* can reach the goal from: flood fill from the goal with A*'s moves
+  std::vector<uint8_t> reaches_goal(grid.data.size(), 0);
+  {
+    std::vector<Cell> stack{*goal_cell};
+    reaches_goal[idx(*goal_cell)] = 1;
+    while (!stack.empty()) {
+      const Cell u = stack.back();
+      stack.pop_back();
+      for (int dr = -1; dr <= 1; ++dr) {
+        for (int dc = -1; dc <= 1; ++dc) {
+          const Cell v{u[0] + dr, u[1] + dc};
+          if ((dr == 0 && dc == 0) || v[0] < 0 || v[0] >= h || v[1] < 0 || v[1] >= w || blocked[idx(v)] ||
+            reaches_goal[idx(v)])
+          {
+            continue;
+          }
+          if (dr != 0 && dc != 0 && (blocked[idx({u[0] + dr, u[1]})] || blocked[idx({u[0], u[1] + dc})])) {
+            continue;
+          }
+          reaches_goal[idx(v)] = 1;
+          stack.push_back(v);
+        }
+      }
+    }
+  }
+
+  // a ball too close to a wall (pushed), or on allowed cells cut off from the goal by a gap too narrow
+  // for the clearance, first takes the shortest way through passable cells to the nearest allowed cell
+  // that reaches the goal (Dijkstra; a straight line could cross a wall)
   std::vector<Cell> lead_in;
   Cell from = *start_cell;
-  if (blocked[idx(from)]) {
+  if (!reaches_goal[idx(from)]) {
     const auto passable = detail::passable_cells(grid, holes);
     if (!passable[idx(from)]) {
       return out;  // in a hole
     }
+    const double fit = params.ball_radius - 0.5 * grid.resolution;
     std::vector<double> dist(grid.data.size(), std::numeric_limits<double>::infinity());
     std::vector<int> prev(grid.data.size(), -1);
     using Item = std::pair<double, int>;
@@ -58,7 +86,7 @@ GridPath plan_grid_path(
       if (d > dist[i]) {
         continue;  // stale entry
       }
-      if (!blocked[i]) {
+      if (reaches_goal[i]) {
         reached_cell = i;
         break;
       }
@@ -71,6 +99,12 @@ GridPath plan_grid_path(
           }
           if (dr != 0 && dc != 0 && (!passable[idx({u[0] + dr, u[1]})] || !passable[idx({u[0], u[1] + dc})])) {
             continue;  // no cutting corners
+          }
+          // the ball must fit: a cell closer to a wall than its radius (less half a cell, the grid's
+          // error) only when not getting tighter. A pushed ball slides out along the wall, but never
+          // squeezes into a gap it cannot pass.
+          if (clearance[idx(v)] < fit && clearance[idx(v)] < clearance[i] - 1e-12) {
+            continue;
           }
           const double cand = d + ((dr != 0 && dc != 0) ? std::sqrt(2.0) : 1.0);
           if (cand < dist[idx(v)]) {
@@ -143,6 +177,7 @@ GridPath plan_grid_path(
     route.push_back({i / w, i % w});
   }
   std::reverse(route.begin(), route.end());
+  out.lead_in = lead_in.size();
   out.cells = lead_in;
   out.cells.insert(out.cells.end(), route.begin(), route.end());
   for (const auto & c : out.cells) {

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "maze_planning/blocked.hpp"
@@ -133,6 +134,44 @@ TEST(GridPlannerTest, StartInHoleFails)
   wall_border(g);
   const auto h = cell_center(g, 1, 10);
   EXPECT_FALSE(plan_grid_path(g, {{h[0], h[1], 0.004}}, h, goal_at(g, 10, 30)).found);
+}
+
+// a lower room with the goal and an upper bay joined by a 30 mm gap (cols 28-33 of wall row 15): the
+// gap is too narrow to be allowed, but the 25 mm ball fits through it
+Grid neck()
+{
+  Grid g = free_grid(60, 30);
+  wall_border(g);
+  wall_block(g, 15, 15, 1, 27);
+  wall_block(g, 15, 15, 34, 58);
+  return g;
+}
+
+TEST(GridPlannerTest, LeadInHeadsForGoalSide)
+{
+  const Grid g = neck();
+  // just inside the bay: the bay's allowed cells are nearer, but only the lower room reaches the goal
+  const auto path = plan_grid_path(g, {}, cell_center(g, 16, 30), goal_at(g, 5, 10));
+  ASSERT_TRUE(path.found);
+  EXPECT_EQ(path.cells.back(), (std::array<int, 2>{5, 10}));
+}
+
+TEST(GridPlannerTest, AllowedStartCutOffFromGoalLeavesThroughGap)
+{
+  const Grid g = neck();
+  const auto path = plan_grid_path(g, {}, cell_center(g, 22, 30), goal_at(g, 5, 10));  // deep in the bay
+  ASSERT_TRUE(path.found);
+  EXPECT_EQ(path.cells.back(), (std::array<int, 2>{5, 10}));
+}
+
+TEST(GridPlannerTest, RejectsNonFiniteGrid)
+{
+  Grid g = channel();
+  g.resolution = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(validate(g), std::invalid_argument);
+  g = channel();
+  g.origin_x = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(validate(g), std::invalid_argument);
 }
 
 TEST(GridPlannerTest, StartInWallFails)

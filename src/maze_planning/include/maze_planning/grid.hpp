@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -42,6 +43,8 @@ struct GridPath
   bool found = false;
   std::vector<std::array<int, 2>> cells;      // {row, col}, start to goal
   std::vector<std::array<double, 2>> points;  // {x, y} in maze_board, m
+  size_t lead_in = 0;                         // leading cells that are a pushed or cut-off ball's way
+                                              // out to where A* can reach the goal
 };
 
 // walls and unknown cells: anything that is not free floor
@@ -49,7 +52,8 @@ bool is_obstacle(int8_t value);
 
 std::array<double, 2> cell_center(const Grid & grid, int row, int col);
 
-// throws std::invalid_argument on a grid with no cells, a non-positive resolution or a data size
+// throws std::invalid_argument on a grid with no cells, a resolution that is not finite and > 0, a
+// non-finite origin or a data size
 // that does not match width * height
 void validate(const Grid & grid);
 

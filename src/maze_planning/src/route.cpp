@@ -61,19 +61,19 @@ Route build_route(
     }
   }
 
-  // the lead-in of a pushed ball: its leading blocked cells
-  size_t lead = 0;
+  // the lead-in: the cells plan_grid_path marked as the way out, and at least the leading blocked ones
+  size_t lead = path.lead_in;
   while (lead < n && blocked[detail::index(grid, path.cells[lead])]) {
     ++lead;
   }
-  if (lead == n) {
+  if (lead >= n) {
     return route;  // the goal cell is allowed in any path plan_grid_path returns
   }
   const Point start = path.points.front();
   const Point goal = path.points.back();
   auto center = [&](int r, int c) {return cell_center(grid, r, c);};
 
-  // the lead-in (leading blocked cells and the first allowed one) in boxes of passable cells, each at
+  // the lead-in (its cells and the first cell A* starts from) in boxes of passable cells, each at
   // whole-cell extent: a pushed ball jitters sideways. Consecutive boxes share a cell, so they overlap.
   std::vector<Piece> pieces;
   if (lead > 0) {

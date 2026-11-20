@@ -277,6 +277,19 @@ TEST_F(PlannerNodeTest, BadMapIgnored)
   EXPECT_NEAR(r.path.poses.back().pose.position.y, fixture.goal.y, 1e-12);
 }
 
+TEST_F(PlannerNodeTest, MapWithBadHoleIgnored)
+{
+  plan_once();
+  MazeMap bad = make_map(fixture);
+  maze_interfaces::msg::Circle hole;
+  hole.x = 0.0;
+  hole.y = 0.0;
+  hole.radius = std::numeric_limits<double>::quiet_NaN();  // would silently drop the hole
+  bad.holes.push_back(hole);
+  map_pub->publish(bad);
+  EXPECT_FALSE(wait_for([this] {return routes.back().plan_id != 1u;}, 500ms));  // a valid map would replan
+}
+
 TEST_F(PlannerNodeTest, RequiredParamMissingThrows)
 {
   EXPECT_ANY_THROW(PlannerNode(rclcpp::NodeOptions().parameter_overrides(yaml_params("replan.outside_frames"))));
