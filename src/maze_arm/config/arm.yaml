@@ -1,0 +1,13 @@
+# Arm control (tilt -> joint velocities). All keys are required.
+# Tilt limits are Contract 4's hard limits (docs/interfaces.md), revisited after the grip test
+# and system ID.
+
+max_tilt: 0.087          # rad (5 deg), each tilt axis
+max_tilt_rate: 0.5       # rad/s, how fast the tilt reference may move
+max_joint_speed: 1.0     # rad/s, every joint; all joints scale down together above this
+
+k_pos: 5.0               # 1/s, pulls the board center back to home
+k_rot: 5.0               # 1/s, pulls the board orientation onto the tilt reference
+damping: 0.02            # damped least squares lambda; larger = calmer near singularities
+
+command_timeout: 0.2     # s, no /board/tilt_cmd for this long -> zero joint velocities

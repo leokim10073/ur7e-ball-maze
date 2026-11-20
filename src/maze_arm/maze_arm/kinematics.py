@@ -40,18 +40,41 @@ def transform(xyz=(0, 0, 0), R=np.eye(3)):
     return T
 
 
-def fk_tool0(q):
-    """base_link -> tool0. base_link is the UR DH base rotated by pi about z."""
+def joint_frames(q):
+    """base_link -> the frame each joint turns about (its z axis), for joints 1..6, then tool0."""
     T = transform(R=rpy_matrix(0, 0, np.pi))
+    frames = [T]
     for i in range(6):
         T = T @ dh(A[i], ALPHA[i], D[i], q[i])
-    return T
+        frames.append(T)
+    return frames
+
+
+def fk_tool0(q):
+    """base_link -> tool0. base_link is the UR DH base rotated by pi about z."""
+    return joint_frames(q)[-1]
+
+
+def board_offset(grasp_xyz, grasp_rpy, handle_center):
+    """tool0 -> maze_board."""
+    T_tool0_handle = transform(grasp_xyz, rpy_matrix(*grasp_rpy))
+    T_handle_board = transform(-np.asarray(handle_center))  # board axes = handle axes
+    return T_tool0_handle @ T_handle_board
 
 
 def fk_board(q, grasp_xyz, grasp_rpy, handle_center):
     """base_link -> maze_board (board center, z = 0 on the maze floor)."""
-    T_tool0_handle = transform(grasp_xyz, rpy_matrix(*grasp_rpy))
-    T_handle_board = transform(-np.asarray(handle_center))  # board axes = handle axes
-    return fk_tool0(q) @ T_tool0_handle @ T_handle_board
+    return fk_tool0(q) @ board_offset(grasp_xyz, grasp_rpy, handle_center)
 
 
+def board_jacobian(q, T_tool0_board):
+    """6x6 Jacobian of the board center in base_link: [v; w] = J @ qdot,
+    v = linear velocity of the board center, w = angular velocity of the board."""
+    frames = joint_frames(q)
+    p = (frames[-1] @ T_tool0_board)[:3, 3]
+    J = np.zeros((6, 6))
+    for i in range(6):
+        z, o = frames[i][:3, 2], frames[i][:3, 3]
+        J[:3, i] = np.cross(z, p - o)
+        J[3:, i] = z
+    return J

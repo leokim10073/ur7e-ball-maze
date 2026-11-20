@@ -29,6 +29,13 @@ def grasp(sim_cfg):
 
 
 @pytest.fixture(scope="session")
+def arm_cfg():
+    from maze_arm.tilt_control import load_arm_config
+
+    return load_arm_config(PKG / "config" / "arm.yaml")
+
+
+@pytest.fixture(scope="session")
 def handle_center():
     """Handle center in the board frame, m (from the L1 CAD)."""
     report = json.loads(PARTS_REPORT.read_text())
