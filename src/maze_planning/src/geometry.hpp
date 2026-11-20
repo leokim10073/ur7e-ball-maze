@@ -21,6 +21,28 @@ inline size_t index(const Grid & g, Cell c)
   return static_cast<size_t>(c[0]) * static_cast<size_t>(g.width) + static_cast<size_t>(c[1]);
 }
 
+// cells a pushed ball may roll through on its way out: not a wall or unknown cell, and the center
+// not inside a hole (the hole itself, without hole_margin: the ball may have to leave the margin ring)
+inline std::vector<uint8_t> passable_cells(const Grid & g, const std::vector<Circle> & holes)
+{
+  std::vector<uint8_t> out(g.data.size(), 0);
+  for (int r = 0; r < g.height; ++r) {
+    for (int c = 0; c < g.width; ++c) {
+      const size_t i = index(g, {r, c});
+      if (is_obstacle(g.data[i])) {
+        continue;
+      }
+      const auto p = cell_center(g, r, c);
+      bool in_hole = false;
+      for (const auto & h : holes) {
+        in_hole = in_hole || std::hypot(p[0] - h.x, p[1] - h.y) < h.radius;
+      }
+      out[i] = in_hole ? 0 : 1;
+    }
+  }
+  return out;
+}
+
 inline std::optional<Cell> cell_of(const Grid & g, double x, double y)
 {
   const double col = std::floor((x - g.origin_x) / g.resolution);

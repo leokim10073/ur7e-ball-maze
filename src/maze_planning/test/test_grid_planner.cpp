@@ -3,6 +3,8 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "maze_planning/blocked.hpp"
+#include "maze_planning/clearance.hpp"
 #include "maze_planning/grid_planner.hpp"
 #include "grids.hpp"
 
@@ -86,6 +88,51 @@ TEST(GridPlannerTest, StartAgainstWallLeavesIt)
     centre_by_col_10 = centre_by_col_10 || cell[0] == 5;
   }
   EXPECT_TRUE(centre_by_col_10);
+}
+
+TEST(GridPlannerTest, DeadEndLeadInLeavesThroughTop)
+{
+  const Grid g = dead_end();
+  const PlannerParams params;
+  const auto path = plan_grid_path(g, {}, cell_center(g, 3, 13), goal_at(g, 24, 20), params);
+  ASSERT_TRUE(path.found);
+  EXPECT_EQ(path.cells.back(), (std::array<int, 2>{24, 20}));
+  const auto blocked = blocked_cells(g, clearance_map(g), {}, params);
+  for (const auto & c : path.cells) {
+    if (!blocked[static_cast<size_t>(c[0] * g.width + c[1])]) {
+      break;
+    }
+    EXPECT_FALSE(is_obstacle(g.data[static_cast<size_t>(c[0] * g.width + c[1])]));
+    EXPECT_LT(c[1], 14) << "lead-in cell (" << c[0] << ", " << c[1] << ") crossed the divider";
+  }
+}
+
+TEST(GridPlannerTest, LeadInAvoidsHole)
+{
+  Grid g = free_grid(40, 21);
+  wall_border(g);
+  const auto h = cell_center(g, 2, 10);  // between the pushed start and the nearest allowed cell (4, 10)
+  const Circle hole{h[0], h[1], 0.004};
+  const PlannerParams params;
+  const auto path = plan_grid_path(g, {hole}, cell_center(g, 1, 10), goal_at(g, 10, 30), params);
+  ASSERT_TRUE(path.found);
+  const auto blocked = blocked_cells(g, clearance_map(g), {hole}, params);
+  for (const auto & c : path.cells) {
+    if (!blocked[static_cast<size_t>(c[0] * g.width + c[1])]) {
+      break;
+    }
+    const auto p = cell_center(g, c[0], c[1]);
+    EXPECT_GE(std::hypot(p[0] - hole.x, p[1] - hole.y), hole.radius)
+      << "lead-in cell (" << c[0] << ", " << c[1] << ") is over the hole";
+  }
+}
+
+TEST(GridPlannerTest, StartInHoleFails)
+{
+  Grid g = free_grid(40, 21);
+  wall_border(g);
+  const auto h = cell_center(g, 1, 10);
+  EXPECT_FALSE(plan_grid_path(g, {{h[0], h[1], 0.004}}, h, goal_at(g, 10, 30)).found);
 }
 
 TEST(GridPlannerTest, StartInWallFails)

@@ -18,7 +18,6 @@ namespace maze_planning
 
 using detail::Cell;
 using detail::cell_of;
-using detail::line_cells;
 
 GridPath plan_grid_path(
   const Grid & grid, const std::vector<Circle> & holes, std::array<double, 2> start,
@@ -37,32 +36,59 @@ GridPath plan_grid_path(
     return out;
   }
 
-  // a ball already too close to a wall first goes straight to the nearest allowed cell
+  // a ball already too close to a wall first takes the shortest way through passable cells to the
+  // nearest allowed cell (Dijkstra; a straight line could cross a wall)
   std::vector<Cell> lead_in;
   Cell from = *start_cell;
   if (blocked[idx(from)]) {
-    std::optional<Cell> nearest;
-    double best = std::numeric_limits<double>::infinity();
-    for (int r = 0; r < h; ++r) {
-      for (int c = 0; c < w; ++c) {
-        const double d = std::hypot(r - from[0], c - from[1]);
-        if (!blocked[idx({r, c})] && d < best) {
-          best = d;
-          nearest = Cell{r, c};
+    const auto passable = detail::passable_cells(grid, holes);
+    if (!passable[idx(from)]) {
+      return out;  // in a hole
+    }
+    std::vector<double> dist(grid.data.size(), std::numeric_limits<double>::infinity());
+    std::vector<int> prev(grid.data.size(), -1);
+    using Item = std::pair<double, int>;
+    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> queue;
+    dist[idx(from)] = 0.0;
+    queue.push({0.0, static_cast<int>(idx(from))});
+    int reached_cell = -1;
+    while (!queue.empty()) {
+      const auto [d, i] = queue.top();
+      queue.pop();
+      if (d > dist[i]) {
+        continue;  // stale entry
+      }
+      if (!blocked[i]) {
+        reached_cell = i;
+        break;
+      }
+      const Cell u{i / w, i % w};
+      for (int dr = -1; dr <= 1; ++dr) {
+        for (int dc = -1; dc <= 1; ++dc) {
+          const Cell v{u[0] + dr, u[1] + dc};
+          if ((dr == 0 && dc == 0) || v[0] < 0 || v[0] >= h || v[1] < 0 || v[1] >= w || !passable[idx(v)]) {
+            continue;
+          }
+          if (dr != 0 && dc != 0 && (!passable[idx({u[0] + dr, u[1]})] || !passable[idx({u[0], u[1] + dc})])) {
+            continue;  // no cutting corners
+          }
+          const double cand = d + ((dr != 0 && dc != 0) ? std::sqrt(2.0) : 1.0);
+          if (cand < dist[idx(v)]) {
+            dist[idx(v)] = cand;
+            prev[idx(v)] = i;
+            queue.push({cand, static_cast<int>(idx(v))});
+          }
         }
       }
     }
-    if (!nearest) {
+    if (reached_cell < 0) {
       return out;
     }
-    lead_in = line_cells(from, *nearest);
-    for (const auto & c : lead_in) {
-      if (is_obstacle(grid.data[idx(c)])) {
-        return out;
-      }
+    for (int i = prev[reached_cell]; i != -1; i = prev[i]) {  // the A* below starts from reached_cell
+      lead_in.push_back({i / w, i % w});
     }
-    lead_in.pop_back();  // the A* below starts from it
-    from = *nearest;
+    std::reverse(lead_in.begin(), lead_in.end());
+    from = {reached_cell / w, reached_cell % w};
   }
 
   // A*: g in cells, a step's length scaled up when its cell is closer to a wall than preferred

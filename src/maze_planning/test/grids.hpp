@@ -54,6 +54,17 @@ inline Grid channel()
   return g;
 }
 
+// 34 x 30, walled border, wall cells in columns 7 and 14 rows 0-16: columns 8-13 form a 30 mm dead
+// end open at the top, too narrow for the 25 mm ball (docs/figures/planning-pl4/bfs_lead_in.png)
+inline Grid dead_end()
+{
+  Grid g = free_grid(34, 30);
+  wall_border(g);
+  wall_col(g, 7, 0, 16);
+  wall_col(g, 14, 0, 16);
+  return g;
+}
+
 inline Circle goal_at(const Grid & g, int row, int col)
 {
   const auto c = cell_center(g, row, col);
