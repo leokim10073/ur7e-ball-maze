@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>maze_arm_control</name>
+  <version>0.1.0</version>
+  <description>Arm control node for the maze: board tilt command to UR7e joint velocities (remote-pivot resolved-rate control).</description>
+  <maintainer email="chelseayan@berkeley.edu">Chelsea Yan</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>ament_index_cpp</depend>
+  <depend>controller_manager_msgs</depend>
+  <depend>eigen</depend>
+  <depend>maze_interfaces</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>yaml-cpp</depend>
+
+  <exec_depend>ur_description</exec_depend>
+  <exec_depend>maze_sim_description</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ur_description</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

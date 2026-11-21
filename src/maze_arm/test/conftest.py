@@ -8,6 +8,7 @@ import yaml
 PKG = Path(__file__).resolve().parents[1]
 REPO = PKG.parents[1]
 SIM_YAML = REPO / "src" / "maze_sim_description" / "config" / "sim.yaml"
+ARM_YAML = REPO / "src" / "maze_arm_control" / "config" / "arm.yaml"   # owned by the C++ node
 PARTS_REPORT = REPO / "maze_CAD" / "levels" / "L1" / "sim" / "parts_report.json"
 
 
@@ -32,7 +33,7 @@ def grasp(sim_cfg):
 def arm_cfg():
     from maze_arm.tilt_control import load_arm_config
 
-    return load_arm_config(PKG / "config" / "arm.yaml")
+    return load_arm_config(ARM_YAML)
 
 
 @pytest.fixture(scope="session")
