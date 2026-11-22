@@ -16,13 +16,23 @@ CFTOC solved every control period (k = 0 .. N-1, p = (px, py), v = (vx, vy)):
 
 The corridor constraints are soft (slack S with an exact linear penalty), so
 the QP stays feasible when a noisy state puts the ball outside a corridor.
+
+MPCController wraps the CFTOC with the LQR's estimation (lqr_law.LQRController):
+theta is not measured, so an open-loop observer runs the lag model on the
+commands sent, and the state is predicted ``delay`` ahead through the commands
+already in flight. When a solve fails or runs past ``solve_budget``, it plays
+the next step of the last good plan; after ``max_fallback`` failures in a row
+(or with no plan) it levels the board.
 """
 
+import collections
 import dataclasses
 import time
 
 import casadi as ca
 import numpy as np
+
+from ..lqr.lqr_law import G, ball_model, c2d
 
 # Infinite corridor bounds are replaced by this (m): far outside any board.
 BIG = 1.0e3
@@ -99,6 +109,10 @@ class CFTOC:
         self.solve(np.zeros(6), HorizonRef(z, z, z - 1.0, z + 1.0), np.zeros(2))
         self._guess = None
 
+    def clear_guess(self):
+        """Drop the warm start (a new run starts from zeros)."""
+        self._guess = None
+
     # -------------------------------------------------------------- internals
     def _solve_qp(self, args):
         """Call the CasADi function. Returns ([X, U, S], ok)."""
@@ -153,3 +167,102 @@ class CFTOC:
         if ok:
             self._guess = (X, U, S)
         return Plan(U, X, S, ok, t_solve)
+
+
+class MPCController:
+    """Same interface as LQRController (step / step_zero / reset), except that
+    step takes a HorizonRef instead of a single target point."""
+
+    def __init__(self, cftoc, Ad, Bd, delay, solve_budget, max_fallback):
+        self.cftoc = cftoc
+        self.N, self.dt = cftoc.N, cftoc.dt
+        self.max_tilt, self.max_rate = cftoc.max_tilt, cftoc.max_rate
+        self.Ad, self.Bd = np.asarray(Ad, float), np.asarray(Bd, float)
+        self.n_delay = int(round(float(delay) / self.dt))
+        self.solve_budget = float(solve_budget)
+        self.max_fallback = int(max_fallback)
+        self.lag = float(self.Ad[2, 2])         # lag pole, for the observer
+        self.u = np.zeros(2)                    # last output (tilt_x, tilt_y)
+        self.theta = np.zeros(2)                # estimated actual tilt per axis
+        # commands sent but not yet acting on the board, oldest first
+        self._pending = collections.deque([np.zeros(2)] * self.n_delay)
+        self.mode = 'level'
+        self.n_fail = 0
+        self.last_plan = None
+
+    @classmethod
+    def from_params(cls, model, mpc, limits, rate_hz, g=G):
+        dt = 1.0 / float(rate_hz)
+        Ad, Bd = c2d(*ball_model(model['c'], model['tau'], g), dt)
+        cftoc = CFTOC(Ad, Bd, dt, mpc['horizon'], mpc['q_pos'], mpc['q_vel'],
+                      mpc['r'], mpc['r_du'], mpc['rho_lin'], mpc['rho_quad'],
+                      limits['max_tilt'], limits['max_rate'],
+                      osqp_opts=dict(mpc.get('osqp', {})))
+        return cls(cftoc, Ad, Bd, model['delay'], mpc['solve_budget'],
+                   mpc['max_fallback'])
+
+    def reset(self):
+        """New run: forget the stored plan, the failures and the warm start
+        (the output and the observer keep going)."""
+        self.last_plan = None
+        self.n_fail = 0
+        self.cftoc.clear_guess()
+
+    # -------------------------------------------------------------- internals
+    # _limit / _advance / _predict follow LQRController's (lqr_law.py).
+    def _limit(self, u_des, dt):
+        u_sat = np.clip(u_des, -self.max_tilt, self.max_tilt)
+        step = self.max_rate * max(dt, 0.0)
+        return self.u + np.clip(u_sat - self.u, -step, step)
+
+    def _advance(self, u_out):
+        if self.n_delay > 0:
+            self._pending.append(u_out.copy())
+            acting = self._pending.popleft()
+        else:
+            acting = u_out
+        self.theta = self.lag * self.theta + (1.0 - self.lag) * acting
+        self.u = u_out
+
+    def _predict(self, pos, vel):
+        """Stacked state [px, vx, thx, py, vy, thy] n_delay steps ahead."""
+        x = np.vstack([pos, vel, self.theta])
+        for u in self._pending:
+            x = self.Ad @ x + self.Bd @ u.reshape(1, 2)
+        return np.concatenate([x[:, 0], x[:, 1]])
+
+    def _fallback(self):
+        """Desired command after a failed solve."""
+        self.n_fail += 1
+        plan = self.last_plan
+        if plan is None or self.n_fail > self.max_fallback \
+                or self.n_fail >= plan.U.shape[1]:
+            self.mode = 'level'
+            return np.zeros(2)
+        self.mode = 'fallback'
+        return plan.U[:, self.n_fail]
+
+    # -------------------------------------------------------------- interface
+    def step(self, ref, pos, vel, dt):
+        """One control step. Returns np.array([tilt_x, tilt_y]) in rad."""
+        pos, vel = np.asarray(pos, float), np.asarray(vel, float)
+        if not (np.all(np.isfinite(pos)) and np.all(np.isfinite(vel))):
+            u_des = self._fallback()
+        else:
+            plan = self.cftoc.solve(self._predict(pos, vel), ref, self.u)
+            if plan.ok and plan.t_solve <= self.solve_budget:
+                self.last_plan, self.n_fail, self.mode = plan, 0, 'ok'
+                u_des = plan.U[:, 0]
+            else:
+                u_des = self._fallback()
+        u_out = self._limit(u_des, dt)
+        self._advance(u_out)
+        return u_out.copy()
+
+    def step_zero(self, dt):
+        """Ramp the tilt back to zero (rate limited) and start over."""
+        self.reset()
+        self.mode = 'level'
+        u_out = self._limit(np.zeros(2), dt)
+        self._advance(u_out)
+        return u_out.copy()

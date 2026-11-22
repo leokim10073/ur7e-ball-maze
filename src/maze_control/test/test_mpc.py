@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from maze_control.lqr.lqr_law import ball_model, c2d, design_gain
-from maze_control.mpc.mpc_law import CFTOC, HorizonRef
+from maze_control.mpc.mpc_law import CFTOC, HorizonRef, MPCController
 
 EPS = 1e-6
 INF = np.inf
@@ -110,3 +110,135 @@ def test_first_solve_is_fast_after_warmup(lqr_params):
         plan = mpc.solve(state(px=0.001 * k), ref, np.zeros(2))
         times.append(plan.t_solve)
     assert np.median(times) < 0.008
+
+
+# ------------------------------------------------------------ MPCController
+MPC_BLOCK = dict(horizon=30, q_pos=2500.0, q_vel=100.0, r=156.0, r_du=0.0,
+                 rho_lin=1e4, rho_quad=1e4, solve_budget=0.012, max_fallback=5,
+                 osqp={'max_iter': 4000, 'eps_abs': 1e-5, 'eps_rel': 1e-5,
+                       'polish': True})
+
+
+@pytest.fixture
+def mpc_ctrl(lqr_params):
+    p = lqr_params
+    return MPCController.from_params(p['model'], dict(MPC_BLOCK), p['limits'],
+                                     p['rate_hz'], g=p['model']['g'])
+
+
+def far_ref(N, R=(0.15, -0.1)):
+    return ref_const(N, R=R)
+
+
+def check_rate(outputs, dt, max_tilt, max_rate):
+    cmd = np.asarray(outputs)
+    assert np.abs(cmd).max() <= max_tilt + EPS
+    rate = np.abs(np.diff(np.vstack([np.zeros(2), cmd]), axis=0)) / dt
+    assert rate.max() <= max_rate + 1e-6
+
+
+def test_step_output_is_limited_and_tracked_by_observer(mpc_ctrl, lqr_params):
+    ctrl, lim = mpc_ctrl, lqr_params['limits']
+    dt = ctrl.dt
+    lag = ctrl.lag
+    outs, theta = [], np.zeros(2)
+    for _ in range(30):
+        u = ctrl.step(far_ref(ctrl.N), np.zeros(2), np.zeros(2), dt)
+        outs.append(u)
+        k = len(outs) - 1 - ctrl.n_delay
+        acting = outs[k] if k >= 0 else np.zeros(2)
+        theta = lag * theta + (1.0 - lag) * acting
+        assert ctrl.theta == pytest.approx(theta, abs=1e-12)
+    assert ctrl.mode == 'ok'
+    check_rate(outs, dt, lim['max_tilt'], lim['max_rate'])
+    assert np.abs(outs[-1]).max() > 0.0
+
+
+def test_delay_prediction_uses_commands_in_flight(mpc_ctrl):
+    ctrl = mpc_ctrl
+    assert ctrl.n_delay == 3                       # 0.05 s at 60 Hz
+    for _ in range(3):
+        ctrl.step(far_ref(ctrl.N), np.zeros(2), np.zeros(2), ctrl.dt)
+    pending = [u.copy() for u in ctrl._pending]
+    assert np.abs(np.array(pending)).max() > 0.0
+    pos, vel, theta = np.array([0.01, -0.02]), np.array([0.05, 0.03]), ctrl.theta.copy()
+
+    seen = {}
+    solve = ctrl.cftoc.solve
+
+    def spy(x0, ref, u_prev):
+        seen['x0'] = np.array(x0)
+        return solve(x0, ref, u_prev)
+    ctrl.cftoc.solve = spy
+    ctrl.step(far_ref(ctrl.N), pos, vel, ctrl.dt)
+
+    x = np.vstack([pos, vel, theta])               # 3 x 2, column per axis
+    for u in pending:
+        x = ctrl.Ad @ x + ctrl.Bd @ u.reshape(1, 2)
+    expected = np.concatenate([x[:, 0], x[:, 1]])  # [px, vx, thx, py, vy, thy]
+    assert seen['x0'] == pytest.approx(expected, abs=1e-12)
+
+
+def fail_qp(args):
+    return None, False
+
+
+def test_failure_applies_shifted_plan_then_levels(mpc_ctrl, lqr_params):
+    ctrl = mpc_ctrl
+    du = lqr_params['limits']['max_rate'] * ctrl.dt
+    ref = far_ref(ctrl.N)
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    good = ctrl.last_plan
+    assert ctrl.mode == 'ok' and good is not None
+    ctrl.cftoc._solve_qp = fail_qp
+    max_fb = MPC_BLOCK['max_fallback']
+    for j in range(1, max_fb + 1):
+        u_before = ctrl.u.copy()
+        u = ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+        expected = u_before + np.clip(good.U[:, j] - u_before, -du, du)
+        assert ctrl.mode == 'fallback' and ctrl.n_fail == j
+        assert u == pytest.approx(expected, abs=1e-12)
+    u_before = ctrl.u.copy()
+    u = ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    assert ctrl.mode == 'level'
+    assert np.all(np.abs(u) <= np.abs(u_before) + 1e-12)
+    assert np.abs(u - u_before).max() <= du + 1e-12
+
+
+def test_slow_solve_counts_as_failure(mpc_ctrl):
+    ctrl = mpc_ctrl
+    ref = far_ref(ctrl.N)
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    real = ctrl.cftoc._solve_qp
+
+    def slow(args):
+        time.sleep(MPC_BLOCK['solve_budget'] + 0.005)
+        return real(args)
+    ctrl.cftoc._solve_qp = slow
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    assert ctrl.mode == 'fallback' and ctrl.n_fail == 1
+
+
+def test_nan_state_is_a_failure_without_solving(mpc_ctrl):
+    ctrl = mpc_ctrl
+    ref = far_ref(ctrl.N)
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    calls = []
+    real = ctrl.cftoc._solve_qp
+    ctrl.cftoc._solve_qp = lambda args: (calls.append(1), real(args))[1]
+    u = ctrl.step(ref, np.array([np.nan, 0.0]), np.zeros(2), ctrl.dt)
+    assert not calls and ctrl.mode == 'fallback'
+    assert np.all(np.isfinite(u))
+
+
+def test_reset_clears_plan_and_failures(mpc_ctrl):
+    ctrl = mpc_ctrl
+    ref = far_ref(ctrl.N)
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    ctrl.cftoc._solve_qp = fail_qp
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    assert ctrl.mode == 'fallback'
+    ctrl.reset()
+    assert ctrl.n_fail == 0 and ctrl.last_plan is None
+    ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
+    assert ctrl.mode == 'level'
