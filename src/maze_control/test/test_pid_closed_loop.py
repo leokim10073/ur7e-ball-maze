@@ -72,3 +72,15 @@ def test_tolerates_noise_and_extra_lag(run, name):
                     noise_vel=0.01)
     assert dist_to_goal(log, path)[-1] < 0.01
     assert log['cross_track'].max() < 0.025
+
+
+def test_sim_config_same_keys(pid_params):
+    """config/pid_sim.yaml (MuJoCo) must stay a drop-in for config/pid.yaml (robot)."""
+    from maze_control.common.config import load_params
+
+    def keys(d, prefix=''):
+        out = set()
+        for k, v in d.items():
+            out |= keys(v, f'{prefix}{k}.') if isinstance(v, dict) else {prefix + k}
+        return out
+    assert keys(load_params('pid_sim.yaml')) == keys(pid_params)

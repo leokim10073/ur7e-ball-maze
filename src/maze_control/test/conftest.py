@@ -20,7 +20,7 @@ def pid_params():
 
 @pytest.fixture
 def sim_params():
-    return load_params('sim.yaml')
+    return load_params('ball_sim.yaml')
 
 
 @pytest.fixture

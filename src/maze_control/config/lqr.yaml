@@ -14,7 +14,7 @@ maze_lqr_controller:
     # Plant model the gain is designed on, per axis (tilt_x and tilt_y alike):
     #   p' = v,  v' = (5/7) g theta - c v,  theta' = (u(t - delay) - theta) / tau
     # These are the controller's beliefs about the plant; the offline sim's true
-    # plant is config/sim.yaml, so tests also cover a model mismatch. This is the
+    # plant is config/ball_sim.yaml, so tests also cover a model mismatch. This is the
     # robust default (offline: stable up to 80 ms lag + 50 ms delay in every test case,
     # and on paths up to 120 + 100 ms) until the
     # robot's latency is measured; config/lqr_sim.yaml is tuned for the MuJoCo sim.

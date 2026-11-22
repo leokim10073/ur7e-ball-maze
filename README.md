@@ -346,7 +346,8 @@ src/maze_control/
   maze_control/common/   path_tracker.py (look-ahead target on the path), ball_sim.py (offline sim),
                          config.py (YAML loader), scenarios.py (test paths)
   maze_control/pid/      pid_law.py (two-axis PID), controller.py (tracker + PID + watchdog), node.py
-  config/                pid.yaml (gains, limits, signs, topics), sim.yaml (offline sim plant)
+  config/                <controller>.yaml for the robot, <controller>_sim.yaml for the MuJoCo sim
+                         (pid, pid_sim, lqr, lqr_sim: gains, limits, topics); ball_sim.yaml (offline sim plant)
   launch/                pid.launch.py
   scripts/               plot_trajectories.py
 ```
@@ -355,8 +356,12 @@ src/maze_control/
 
 ```bash
 colcon build && source install/setup.bash
-ros2 launch maze_control pid.launch.py use_sim_time:=true   # false (default) on the robot
+ros2 launch maze_control pid.launch.py                      # robot: config/pid.yaml
+ros2 launch maze_control pid.launch.py use_sim_time:=true \
+    config:=$(ros2 pkg prefix maze_control)/share/maze_control/config/pid_sim.yaml   # MuJoCo sim
 ```
+
+Each controller has two configs with the same keys: `<controller>.yaml` for the robot (the launch default) and `<controller>_sim.yaml` for the MuJoCo sim, so sim tuning never changes what runs on the robot. `pid_sim.yaml` has the same values as `pid.yaml` for now.
 
 | Topic | Type | Notes |
 |---|---|---|
