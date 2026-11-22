@@ -23,7 +23,8 @@ class LqrPathController(PidPathController):
         law = LQRController.from_params(p['model'], p['lqr'], p['limits'],
                                         p['rate_hz'], g=p['model']['g'])
         return cls(tracker, law, rate_hz=p['rate_hz'],
-                   state_timeout=p['watchdog']['state_timeout'])
+                   state_timeout=p['watchdog']['state_timeout'],
+                   abort_timeout=p['watchdog']['abort_timeout'])
 
     # the base class calls its control law "pid"; give it a neutral name too
     @property

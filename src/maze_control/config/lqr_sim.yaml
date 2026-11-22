@@ -56,4 +56,5 @@ maze_lqr_controller:
       search_back: 0.02           # projection window behind progress [m]
 
     watchdog:
-      state_timeout: 0.2          # contract 2's tracking_timeout [s]
+      state_timeout: 0.2          # contract 2's tracking_timeout: level the board, resume when states return [s]
+      abort_timeout: 2.0          # contract 2's tracking_abort: lost this long during a run -> stop it [s]

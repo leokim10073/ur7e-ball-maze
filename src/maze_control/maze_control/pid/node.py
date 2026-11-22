@@ -61,7 +61,8 @@ class PidNode(Node):
     def on_state(self, msg):
         # tracking_ok = false: x, y are only the filter's prediction. Such a
         # state does not feed the watchdog, so after state_timeout (0.2 s,
-        # contract 2) without a real detection the board goes level.
+        # contract 2) without a real detection the board goes level, and
+        # after abort_timeout (2 s) the run stops.
         if not msg.tracking_ok:
             return
         # Receive time drives the watchdog, so camera/robot clock offsets

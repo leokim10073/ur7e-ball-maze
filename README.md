@@ -410,3 +410,39 @@ python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.pn
 ```
 
 `test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header).
+
+## Arm control (tilt)
+
+`maze_arm_control` turns `/board/tilt_cmd` into UR7e joint velocities on `/forward_velocity_controller/commands` so the board tilts about its own center (the remote pivot, ~0.325 m from the flange), and publishes `/board/tilt_state` from forward kinematics of `/joint_states` ([contract 4](docs/interfaces.md), #14). It is C++ (one control step per joint state, 500 Hz); `maze_arm`'s Python FK is the reference its FK is tested against.
+
+**Control law.** Resolved-rate control with damped least squares: the twist of the board frame is `k·(pose error)` plus the reference's angular velocity as feed-forward, the center held at its home position; `qdot = Jᵀ(JJᵀ + λ²I)⁻¹·twist`, with λ growing only near a singularity. The command is clamped to 0.087 rad, low-passed (15 ms) and followed with a 0.5 rad/s rate limit and an 8 rad/s² acceleration limit that brakes in time to stop on the command (an abrupt stop at the end of a ramp made the lagging arm overshoot 5° steps by 1°); the twist is capped the board turns no faster than 0.5 rad/s about either of its axes (also while correcting a large error), and `qdot` is scaled to the joint speed and acceleration limits. All values are in [`config/tilt_control.yaml`](src/maze_arm_control/config/tilt_control.yaml); every key is required.
+
+**Safety.** A steady-clock watchdog sends zero velocities when no `tilt_cmd` arrives for 200 ms or the joint states are older than 20 ms (the velocity controller has no timeout of its own). At start the node waits for fresh joint states, refuses to run if the board is more than 5 mm or 1° from the home pose (`home_joints`, the level pose), switches to `forward_velocity_controller` with STRICT and checks the result, and starts the reference from the measured tilt. A joint jump or `/sim/reset_done` resyncs (no new home check after a sim reset: see below); the velocity controller found inactive halts the node.
+
+![tilt tracking in the sim](docs/media/tilt_tracking.png)
+
+In the sim (ground truth from `/sim/board/pose`): 5° steps settle to 0.015° with at most 0.05° overshoot, a 3° 0.5 Hz sine is tracked within 0.24° (mostly the 60 Hz command hold and the 15 ms low-pass), and the board center moves less than 0.5 mm. Contract 4's check (2° for 0.5 s from `/sim/reset`) rolls the ball 11–13 mm toward +x or +y.
+
+**Sim quirks.** When `forward_velocity_controller` takes over, the sim arm droops about 5 mm / 0.6° under the board and holds there; the controller pulls the center back as soon as commands come. A `/sim/reset` with the velocity controller active leaves the arm where it was before the reset (the reset only sends it zero velocities), so the node starts again from the measured tilt.
+
+### Run (inside `maze-sim`, next to the sim)
+
+Start it after the sim's start-up reset (`/sim/reset_done`), with the arm at the home pose:
+
+```bash
+colcon build && source install/setup.bash
+ros2 launch maze_arm_control tilt_control.launch.py          # use_sim_time:=false on the robot
+ros2 topic pub -r 60 /board/tilt_cmd maze_interfaces/msg/BoardTilt "{tilt_x: 0.035, tilt_y: 0.0}"
+```
+
+**On the real robot:** set `topics.speed_scaling` to `/speed_scaling_state_broadcaster/speed_scaling` (the node holds the arm below full speed scaling, since scaled joint velocities move the pivot), put the robot's calibrated DH values in `kinematics`, set `home_joints` to the measured level pose, and keep a hand on the e-stop: if the node dies, the velocity controller keeps the last command.
+
+### Tests (inside `maze-sim`)
+
+```bash
+colcon build && source install/setup.bash
+colcon test --packages-select maze_arm_control && colcon test-result --verbose
+python3 src/maze_arm_control/scripts/export_fk_fixture.py   # after a change to maze_arm, sim.yaml or the CAD handle
+```
+
+The gtests check the FK against `maze_arm` (fixture), the Jacobian against finite differences, the tilt signs from the board's edge heights, the reference shaping, a kinematic closed loop (steps and sines on both axes), the watchdog, and the node against a fake arm and controller manager. `test_sim_tilt.py` runs the MuJoCo sim headless in its own ROS domain: contract 4's "How to check" on both axes, 5° steps and 3° sines tracked by the sim's ground-truth board pose, the watchdog, a sim reset, and `pid_node` driving the ball through this node. `TILT_RUN_DIR=<dir>` keeps its CSV runs; `scripts/plot_tilt_run.py <dir> out.png` plots them.

@@ -41,4 +41,6 @@ maze_pid_controller:
 
     watchdog:
       state_timeout: 0.2          # contract 2's tracking_timeout: no good /ball/state for
-                                  # this long -> tilt to 0 and stop the run until a new path [s]
+                                  # this long -> tilt to 0; resume when states come back [s]
+      abort_timeout: 2.0          # contract 2's tracking_abort: lost this long during a run
+                                  # -> stop the run until a new path [s]
