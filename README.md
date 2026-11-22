@@ -337,7 +337,7 @@ They check the walls, start and goal against the sim export (`parts_report.json`
 
 ## Control
 
-`maze_control` tilts the board so the ball follows the planned path. So far: a PID path tracker, the baseline before MPC.
+`maze_control` tilts the board so the ball follows the planned path. So far: a PID path tracker, the baseline before MPC, and an LQR with a delay predictor.
 
 The control code is plain Python (numpy, no ROS) and is tested against an offline ball simulator; `pid_node` is the ROS node around it. Pieces every controller shares live in `common/`, and each controller gets its own subpackage, so an MPC goes next to `pid/` as `mpc/`:
 
@@ -378,6 +378,25 @@ Per axis, `u = kp·e − kd·v + ki·∫e`. `e` is the look-ahead target minus t
 
 Offline sim with a 14 mm steel ball, `a = (5/7)·g·sin θ − c·v`, an 80 ms tilt lag and 50 ms command delay: within 2 cm of the goal after 3.9 s (straight), 5.8 s (L) and 7.1 s (U), with at most 7.9 mm off the path. With a 120 ms lag, 100 ms delay and KF-like noise it still reaches the goal; at 150 ms + 150 ms it oscillates, so retune once the arm's latency is measured.
 
+### LQR
+
+```bash
+ros2 launch maze_control lqr.launch.py use_sim_time:=false                        # robot: robust default
+ros2 launch maze_control lqr.launch.py use_sim_time:=true \
+    config:=$(ros2 pkg prefix maze_control)/share/maze_control/config/lqr_sim.yaml   # MuJoCo sim
+```
+
+`lqr_node` is a drop-in for `pid_node`: same topics, QoS, look-ahead target and tracking-loss rules (it reuses `PidPathController` and only swaps the control law). Run one of the two, never both.
+
+Per axis it uses the model `p' = v`, `v' = (5/7)·g·θ − c·v`, `θ' = (u(t − delay) − θ)/τ` with state `[p − p_target, v, θ]` and `u = −K·x`. `K` comes from the discrete Riccati equation at the 60 Hz control period (zero-order hold), with Bryson's-rule weights in [`config/lqr.yaml`](src/maze_control/config/lqr.yaml) (`q_pos`, `q_vel`, `q_tilt`, `r`; optional integral `q_int`). The tilt `θ` is not measured: it is estimated by running the lag model on the commands sent. The commands still in flight are known, so the state is predicted `delay` ahead before `K` is applied. The output goes through the PID's tilt and rate limits.
+
+Two configs, same keys:
+
+- [`config/lqr.yaml`](src/maze_control/config/lqr.yaml), the default: a slow-arm model (80 ms lag, 50 ms delay), look-ahead 5 cm, no integral. Offline (`K = [3.74, 1.46, 0.63]`) it reaches the goal in 4.2 s (straight), 6.2 s (L) and 7.6 s (U), at most 8.9 mm off the path, and is stable up to an 80 ms lag + 50 ms delay in every test case. With a 120 ms lag, 100 ms delay and noise it stays within 9 mm of the path (PID: 16 mm). Use it on the robot until its latency is measured.
+- [`config/lqr_sim.yaml`](src/maze_control/config/lqr_sim.yaml), tuned on the MuJoCo full chain (sim → perception → planner → LQR → `maze_arm_control`, L1, sim slowed to 0.05× so perception keeps up on a laptop). The model is identified from that chain: the measured tilt follows the command with ~20 ms dead time and ~10 ms lag, perception adds ~10 ms, the ball's rolling loss is ~1/s. With the integral on and a 3 cm look-ahead it reaches the L1 goal in 8.9 s, never within 3 mm of a wall (PID: 8.9 s, 0.7 mm closest; `lqr.yaml`: 11.7 s, touching walls 33% of the time). It assumes that fast arm: offline it diverges on a 24 cm error at 30 ms + 50 ms, so it is for the sim only.
+
+Why 3 cm in the sim: with a 5 cm look-ahead the target point lies past the wall tip at a U-turn; after a replan from next to the tip the LQR pulled the ball straight into it and the ball stuck there. The predictor matters most with a long delay: at 150 ms of dead time `lqr.yaml` still tracks the L path when `model.delay` matches, and goes unstable with the predictor off. The LQR does not know the tilt limit, so heavier weights make it oscillate on large errors; that is what MPC adds.
+
 ### Tests (no ROS needed)
 
 ```bash
@@ -385,4 +404,4 @@ cd src/maze_control && python3 -m pytest test
 python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
 ```
 
-`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker.
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header).

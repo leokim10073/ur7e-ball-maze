@@ -28,16 +28,23 @@ TILT_QOS = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1,
 
 
 class PidNode(Node):
+    """Path-following ball controller node. Other controllers (lqr/node.py)
+    reuse it with their own node name, controller class and config file."""
+
+    NODE_NAME = 'maze_pid_controller'
+    CONTROLLER = PidPathController
+    CONFIG = 'config/pid.yaml'
+
     def __init__(self):
-        super().__init__('maze_pid_controller',
+        super().__init__(self.NODE_NAME,
                          automatically_declare_parameters_from_overrides=True)
         flat = {name: p.value for name, p in
                 self.get_parameters_by_prefix('').items()}
         params = unflatten(flat)
         try:
-            self.ctrl = PidPathController.from_params(params)
+            self.ctrl = self.CONTROLLER.from_params(params)
         except KeyError as e:
-            raise RuntimeError(f'missing parameter {e}; launch with config/pid.yaml')
+            raise RuntimeError(f'missing parameter {e}; launch with {self.CONFIG}')
         topics = params['topics']
         self.frame_id = params['frame_id']
 
@@ -80,9 +87,9 @@ class PidNode(Node):
             self._last_status = self.ctrl.status
 
 
-def main(args=None):
+def run(node_cls, args=None):
     rclpy.init(args=args)
-    node = PidNode()
+    node = node_cls()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
@@ -90,6 +97,10 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
+
+
+def main(args=None):
+    run(PidNode, args)
 
 
 if __name__ == '__main__':
