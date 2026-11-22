@@ -1,0 +1,65 @@
+# Remote-pivot tilt control (maze_arm_control, Contract 4 in docs/interfaces.md, #14). Every key is required.
+# SI units: m, rad, s. Board frame maze_board: origin at the board center, z up, handle on the -x edge.
+tilt_control:
+  ros__parameters:
+    topics:
+      tilt_cmd: /board/tilt_cmd                              # in, BoardTilt, reliable keep-last-1 (4a)
+      tilt_state: /board/tilt_state                          # out, BoardTilt from FK, best effort keep-last-1 (4b)
+      joint_states: /joint_states                            # in, sensor_msgs/JointState
+      velocity_command: /forward_velocity_controller/commands  # out, 6 joint velocities (rad/s)
+      reset_done: /sim/reset_done                            # in, std_msgs/Empty (sim only; resync)
+      speed_scaling: ""                                      # in, std_msgs/Float64; "" = none (sim). On the robot:
+                                                             # /speed_scaling_state_broadcaster/speed_scaling
+    speed_scaling_full: 100.0    # the speed_scaling value at full speed (ur_robot_driver publishes percent);
+                                 # below it the node holds the arm (scaled velocities break the pivot)
+    controllers:
+      velocity: forward_velocity_controller                  # switched on at start (STRICT)
+      deactivate: [scaled_joint_trajectory_controller, forward_position_controller]  # off if active
+
+    # Nominal UR7e DH (ur_description/config/ur7e/default_kinematics.yaml, same as maze_arm).
+    # On the real robot use its calibrated values.
+    kinematics:
+      d: [0.1625, 0.0, 0.0, 0.1333, 0.0997, 0.0996]
+      a: [0.0, -0.425, -0.3922, 0.0, 0.0, 0.0]
+      alpha: [1.5707963267948966, 0.0, 0.0, 1.5707963267948966, -1.5707963267948966, 0.0]
+    # Board relative to tool0, as maze_arm.kinematics.fk_board: sim.yaml board.grasp_offset and the
+    # handle center from maze_CAD/levels/L1/sim/parts_report.json (checked by test/test_config.py).
+    mount:
+      grasp_xyz: [0.0, 0.0, 0.15]
+      grasp_rpy: [3.141593, -1.570796, 0.0]
+      handle_center: [-0.175, 0.0, 0.0]
+
+    # Level home: tilt is measured relative to the board pose FK gives here (sim.yaml robot.initial_joints).
+    home_joints: [-2.7498, -1.6799, -2.2485, 0.7868, 1.1837, -1.5708]
+    home_tolerance:
+      position: 0.005            # refuse to start if the board center is farther than this from home, m
+      rotation: 0.0174533        # ... or its orientation differs by more than this (1 deg), rad
+
+    limits:                      # hard limits (Contract 4); the ball controller stays below them
+      max_tilt: 0.087            # per axis, rad (5 deg)
+      max_rate: 0.5              # per axis, rad/s
+    reference:
+      max_accel: 8.0             # per axis, rad/s^2: the reference's rate ramps up and down (no abrupt
+                                 # stop for the arm to overshoot), and it brakes in time to stop on the command
+      smoothing_tau: 0.015       # first-order filter on the ~60 Hz command before its rate is used, s
+                               # (longer smooths more but lags: ~tau * tilt rate of error)
+
+    gains:                       # twist = k * pose error (+ reference rate feed-forward)
+      k_pos: 20.0                # 1/s
+      k_rot: 20.0                # 1/s
+    dls:                         # damped least squares: damping grows below sigma_min
+      sigma_min: 0.05
+      lambda_max: 0.05
+    twist_cap:
+      linear: 0.1                # board center speed, m/s
+      angular: 1.0               # board angular speed, rad/s
+    joint_limits:
+      max_speed: [3.14159, 3.14159, 3.14159, 3.14159, 3.14159, 3.14159]   # rad/s (UR e-series)
+      max_accel: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]                     # rad/s^2
+
+    watchdog:
+      command_timeout: 0.2       # no tilt_cmd for this long -> zero velocities, s (Contract 4)
+      state_timeout: 0.02        # joint states older than this -> zero velocities, s
+      period: 0.005              # steady (wall) timer of the watchdog and the start-up steps, s
+    joint_jump_threshold: 0.1    # a joint moving more than this between two joint states = reset; resync, rad
+    yaw_warn: 0.0087             # warn when the board yaw drifts more than this from home (0.5 deg), rad
