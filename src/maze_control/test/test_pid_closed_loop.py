@@ -72,3 +72,4 @@ def test_tolerates_noise_and_extra_lag(run, name):
                     noise_vel=0.01)
     assert dist_to_goal(log, path)[-1] < 0.01
     assert log['cross_track'].max() < 0.025
+

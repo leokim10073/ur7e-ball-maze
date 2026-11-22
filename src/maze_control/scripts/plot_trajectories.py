@@ -34,7 +34,7 @@ def main():
                                          'pid_trajectories.png'))
     args = ap.parse_args()
 
-    P, SP = load_params('pid.yaml'), load_params('sim.yaml')
+    P, SP = load_params('pid.yaml'), load_params('ball_sim.yaml')
     max_tilt = float(np.degrees(P['limits']['max_tilt']))   # plotted in deg
     goal_tol = P['tracker']['goal_tol']
 

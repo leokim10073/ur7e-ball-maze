@@ -1,4 +1,6 @@
-# Offline simulator (maze_control.common.ball_sim) used by the tests and plots.
+# Plant of the offline numpy simulator (maze_control.common.ball_sim) used by the
+# tests and plots. Not a controller config: <controller>.yaml is for the robot,
+# <controller>_sim.yaml for the MuJoCo sim.
 # Ball: 14 mm solid steel sphere, rolling without slipping -> a = (5/7) g sin(tilt).
 ball_sim:
   ros__parameters:

@@ -1,0 +1,60 @@
+# LQR ball controller tuned for the MuJoCo sim (full chain, L1):
+#   ros2 launch maze_control lqr.launch.py use_sim_time:=true config:=<share>/config/lqr_sim.yaml
+# Same keys as lqr.yaml; differs in model (fast sim arm), integral and look-ahead.
+# It assumes a fast arm. Offline it is only reliable at ~10 ms lag + 30 ms delay: at
+# 30 + 50 ms a large error (24 cm) diverges, and at 80 + 50 ms it diverges on the L path
+# with 0.3 mm noise (lqr.yaml holds up to 80 + 50 ms in every case). Do NOT use it on
+# the robot before its latency is measured.
+# Every gain, limit, model value and topic lives here.
+# Board frame maze_board (docs/interfaces.md): origin at the plate centre, z up,
+# handle on the -x edge. SI units: m, m/s, rad, rad/s, s.
+maze_lqr_controller:
+  ros__parameters:
+    rate_hz: 60.0                 # control period dt = 1/rate_hz; the gain is designed for it
+
+    topics:
+      state: /ball/state          # maze_interfaces/BallState (contract 2)
+      path: /maze/path            # nav_msgs/Path, maze_board (contract 3)
+      tilt_cmd: /board/tilt_cmd   # maze_interfaces/BoardTilt (contract 4)
+    frame_id: maze_board
+
+    # Plant model the gain is designed on, per axis (tilt_x and tilt_y alike):
+    #   p' = v,  v' = (5/7) g theta - c v,  theta' = (u(t - delay) - theta) / tau
+    # These are the controller's beliefs about the plant, identified from the
+    # MuJoCo full chain (sim -> perception -> planner -> controller -> maze_arm_control,
+    # sim slowed to 0.05x so perception keeps up): tilt_state follows tilt_cmd with
+    # ~20 ms dead time and a ~10 ms lag, perception adds ~10 ms, and the ball's
+    # rolling loss fitted from its motion is ~1/s. Re-identify on the robot.
+    model:
+      g: 9.81                     # [m/s^2]
+      c: 1.0                      # viscous rolling loss [1/s]
+      tau: 0.01                   # arm tilt lag [s]
+      delay: 0.03                 # perception + arm dead time [s]; 0 turns the predictor off
+
+    # Cost per step: q_pos e^2 + q_vel v^2 + q_tilt theta^2 + q_int z^2 + r u^2
+    # (e = ball - target [m], v [m/s], theta = estimated tilt [rad], z = integral of e [m s]).
+    lqr:
+      q_pos: 2500.0               # (1 / 0.02 m)^2
+      q_vel: 100.0                # (1 / 0.1 m/s)^2
+      q_tilt: 0.0                 # no cost on the tilt itself
+      r: 156.0                    # (1 / 0.08 rad)^2
+      q_int: 2000.0               # integral state; 0 = off
+      i_zone: 0.02                # integrate only while |e| < i_zone [m]
+      i_max: 0.0174533            # cap on the integral term [rad] (1 deg)
+
+    # Same as the PID: below arm control's hard limits (contract 4: 0.087 rad, 0.5 rad/s).
+    limits:
+      max_tilt: 0.08              # per axis [rad] (4.6 deg)
+      max_rate: 0.3               # per axis [rad/s] (17 deg/s)
+
+    # 3 cm, not the PID's 5 cm: a longer look-ahead point lies past the wall tip
+    # at a U-turn, and the LQR pulls the ball straight into the tip (stuck in the sim).
+    tracker:
+      lookahead: 0.03             # L [m]
+      goal_tol: 0.02              # within this of the goal: stop advancing [m]
+      search_ahead: 0.15          # projection window ahead of progress [m]
+      search_back: 0.02           # projection window behind progress [m]
+
+    watchdog:
+      state_timeout: 0.2          # contract 2's tracking_timeout: level the board, resume when states return [s]
+      abort_timeout: 2.0          # contract 2's tracking_abort: lost this long during a run -> stop it [s]

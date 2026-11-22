@@ -19,12 +19,13 @@ setup(
     zip_safe=True,
     maintainer='Steven Wu',
     maintainer_email='chiachien_wu@berkeley.edu',
-    description='Ball controllers for the UR7e ball-in-maze (PID path tracking).',
+    description='Ball controllers for the UR7e ball-in-maze (PID and LQR path tracking).',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'pid_node = maze_control.pid.node:main',
+            'lqr_node = maze_control.lqr.node:main',
         ],
     },
 )
