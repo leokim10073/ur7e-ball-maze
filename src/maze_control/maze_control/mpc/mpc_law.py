@@ -189,6 +189,7 @@ class MPCController:
         self.mode = 'level'
         self.n_fail = 0
         self.last_plan = None
+        self.solve_times = collections.deque(maxlen=600)   # last 10 s at 60 Hz
 
     @classmethod
     def from_params(cls, model, mpc, limits, rate_hz, g=G):
@@ -250,6 +251,7 @@ class MPCController:
             u_des = self._fallback()
         else:
             plan = self.cftoc.solve(self._predict(pos, vel), ref, self.u)
+            self.solve_times.append(plan.t_solve)
             if plan.ok and plan.t_solve <= self.solve_budget:
                 self.last_plan, self.n_fail, self.mode = plan, 0, 'ok'
                 u_des = plan.U[:, 0]

@@ -1,12 +1,17 @@
 """MPC controller: the CFTOC (limits, corridors, agreement with the LQR,
 solve time), offline and without ROS."""
 
+import copy
 import time
 
 import numpy as np
 import pytest
 
 from maze_control.lqr.lqr_law import ball_model, c2d, design_gain
+from maze_control.common.scenarios import SCENARIOS, corridors_for
+from maze_control.lqr.controller import LqrPathController
+from maze_control.common.ball_sim import BallSim, run_closed_loop
+from maze_control.mpc.controller import MpcPathController
 from maze_control.mpc.mpc_law import CFTOC, HorizonRef, MPCController
 
 EPS = 1e-6
@@ -242,3 +247,150 @@ def test_reset_clears_plan_and_failures(mpc_ctrl):
     assert ctrl.n_fail == 0 and ctrl.last_plan is None
     ctrl.step(ref, np.zeros(2), np.zeros(2), ctrl.dt)
     assert ctrl.mode == 'level'
+
+
+# ------------------------------------------------------------ path controller
+def started(params, name, pos=None, vel=(0.0, 0.0), half_width=0.02, plan_id=1):
+    """A path controller on a scenario's path, one update done."""
+    path, p0, _ = SCENARIOS[name]
+    ctrl = MpcPathController.from_params(params)
+    arc, corr, pose_corr = corridors_for(path, half_width)
+    assert ctrl.on_route(path, arc, corr, pose_corr, plan_id)
+    ctrl.on_state(0.0, p0 if pos is None else pos, vel)
+    ctrl.update(0.0)
+    return ctrl, path
+
+
+def arc_of(ctrl, pts):
+    """Arc length of points that lie on the tracker's path."""
+    return np.array([ctrl.tracker._project(np.asarray(p))[0] for p in pts.T])
+
+
+def test_mpc_params_within_contract_4(mpc_params):
+    lim = mpc_params['limits']
+    assert lim['max_tilt'] <= 0.087 and lim['max_rate'] <= 0.5
+    assert mpc_params['mpc']['osqp']['polish'] is True
+
+
+def test_horizon_reference_advances_and_stops_at_goal(mpc_params):
+    m = mpc_params['mpc']
+    ctrl, path = started(mpc_params, 'line')
+    dt, nd = ctrl.law.dt, ctrl.law.n_delay
+    ref = ctrl.horizon_ref()
+    s = arc_of(ctrl, ref.R)
+    s0 = ctrl.tracker.progress
+    assert s[0] == pytest.approx(s0 + m['v_ref'] * dt * (nd + 1), abs=1e-9)
+    assert np.diff(s) == pytest.approx(m['v_ref'] * dt, abs=1e-9)
+    t = ctrl.tracker.tangent_at(s0)
+    assert ref.V[:, 0] == pytest.approx(m['v_ref'] * t, abs=1e-9)
+
+    # near the goal: the spacing shrinks and the reference never passes it
+    L = ctrl.tracker.length
+    near = path[0] + (L - 0.03) / L * (path[-1] - path[0])
+    ctrl.tracker.progress = L - 0.03
+    ctrl.on_state(0.1, near, (0.0, 0.0))
+    ctrl.update(0.1)
+    s = arc_of(ctrl, ctrl.horizon_ref().R)
+    assert s.max() <= L + 1e-9
+    d = np.diff(s)
+    assert np.all(d >= -1e-12) and d[-1] < d[0]
+
+
+def test_corridor_lookup_follows_arc_length(mpc_params):
+    params = copy.deepcopy(mpc_params)
+    params['mpc']['v_ref'] = 1.0           # the horizon reaches past the corner
+    ctrl, path = started(params, 'L', pos=(-0.18, -0.05))
+    ref = ctrl.horizon_ref()
+    _, corr, _ = corridors_for(path, 0.02)
+    s = arc_of(ctrl, ref.R)
+    corner = 0.30
+    first, second = s < corner - 1e-9, s > corner + 1e-9
+    assert first.any() and second.any()
+    assert np.allclose(ref.lo[:, first], [[corr[0, 0]], [corr[0, 2]]])
+    assert np.allclose(ref.hi[:, first], [[corr[0, 1]], [corr[0, 3]]])
+    assert np.allclose(ref.lo[:, second], [[corr[1, 0]], [corr[1, 2]]])
+    assert np.allclose(ref.hi[:, second], [[corr[1, 1]], [corr[1, 3]]])
+
+
+def test_same_points_new_plan_id_starts_new_run(mpc_params):
+    ctrl, path = started(mpc_params, 'L')
+    arc, corr, pose_corr = corridors_for(path, 0.02)
+    ctrl.law.cftoc._solve_qp = fail_qp
+    ctrl.update(1 / 60)
+    assert ctrl.law.n_fail == 1
+    ctrl.stopped = True
+    assert not ctrl.on_route(path, arc, corr, pose_corr, plan_id=1)
+    assert ctrl.stopped
+    assert ctrl.on_route(path, arc, corr, pose_corr, plan_id=2)
+    assert not ctrl.stopped and ctrl.law.n_fail == 0 and ctrl.law.last_plan is None
+
+
+def test_single_point_path_has_zero_velocity_reference(mpc_params):
+    ctrl, path = started(mpc_params, 'point')
+    ref = ctrl.horizon_ref()
+    assert np.all(np.isfinite(ref.R)) and np.all(np.isfinite(ref.V))
+    assert np.abs(ref.V).max() == 0.0
+    assert ref.R == pytest.approx(np.tile(path[0].reshape(2, 1), (1, ctrl.law.N)))
+
+
+def test_empty_route_levels_the_board(mpc_params):
+    ctrl, path = started(mpc_params, 'L')
+    for k in range(1, 20):                    # build up some tilt
+        ctrl.on_state(k / 60, SCENARIOS['L'][1], (0.0, 0.0))
+        u = ctrl.update(k / 60)
+    assert np.abs(u).max() > 0.0
+    assert ctrl.on_route([], [], [], [], plan_id=7)
+    t, du = 20 / 60, mpc_params['limits']['max_rate'] / 60
+    ctrl.on_state(t, SCENARIOS['L'][1], (0.0, 0.0))
+    u2 = ctrl.update(t)
+    assert ctrl.status == 'no_path'
+    assert np.all(np.abs(u2) <= np.abs(u) + 1e-12)
+    assert np.abs(u2 - u).max() <= du + 1e-12
+
+
+# ------------------------------------------------------------ closed loop
+def dist_to_goal(log, path):
+    return np.linalg.norm(log['pos'] - path[-1], axis=1)
+
+
+def corridor_violation(pos, corr):
+    """Distance of each position outside the union of the boxes [m]."""
+    pos = np.asarray(pos)[:, None, :]                       # T x 1 x 2
+    lo, hi = corr[None, :, [0, 2]], corr[None, :, [1, 3]]   # 1 x M x 2
+    out = np.maximum(lo - pos, 0.0) + np.maximum(pos - hi, 0.0)
+    return np.linalg.norm(out, axis=2).min(axis=1)
+
+
+# 'point' runs without corridors: its one box is around the goal and does not
+# hold the start, which a planner's route always does (contract 3).
+@pytest.mark.parametrize('name, half_width', [('point', None), ('line', 0.02),
+                                              ('L', 0.02), ('U', 0.02)])
+def test_mpc_reaches_goal_on_all_scenarios(run_mpc, mpc_params, name, half_width):
+    log, path, ctrl = run_mpc(name, half_width=half_width)
+    d = dist_to_goal(log, path)
+    assert d[-1] < 0.01, f'{name}: final error {d[-1] * 1000:.1f} mm'
+    lim = mpc_params['limits']
+    check_rate(log['cmd'], 1 / mpc_params['rate_hz'], lim['max_tilt'],
+               lim['max_rate'])
+
+
+HALF_WIDTH_L = 0.005   # LQR (lqr.yaml) leaves this corridor at the L's corner (by ~4 mm)
+
+
+def test_mpc_stays_in_corridor_on_L(run_mpc, lqr_params, sim_params):
+    path, p0, T = SCENARIOS['L']
+    _, corr, _ = corridors_for(path, HALF_WIDTH_L)
+    lqr = LqrPathController.from_params(lqr_params)
+    lqr_log = run_closed_loop(lqr, BallSim.from_params(sim_params, pos0=p0),
+                              path, T)
+    lqr_v = corridor_violation(lqr_log['pos'], corr).max()
+    log, _, _ = run_mpc('L', half_width=HALF_WIDTH_L)
+    mpc_v = corridor_violation(log['pos'], corr).max()
+    assert lqr_v > 0.003, f'precondition: LQR leaves by {lqr_v * 1000:.1f} mm'
+    assert mpc_v < 0.003, f'MPC leaves the corridor by {mpc_v * 1000:.1f} mm'
+
+
+def test_mpc_with_noise_and_delay(run_mpc):
+    log, path, ctrl = run_mpc('L', half_width=0.02, noise_pos=3e-4, delay=0.08)
+    assert dist_to_goal(log, path)[-1] < 0.01
+    assert np.median(ctrl.law.solve_times) < 0.008

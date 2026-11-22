@@ -23,3 +23,13 @@ def test_tracker_does_not_jump_across_u_turn():
     tgt = trk.update((0.03, 0.19))
     assert tgt[0] == pytest.approx(0.0)
     assert trk.progress < 0.1
+
+
+def test_tangent_at():
+    trk = PathTracker()
+    trk.set_path([[-0.18, 0.15], [-0.18, -0.15], [0.18, -0.15]])
+    assert np.allclose(trk.tangent_at(0.1), (0.0, -1.0))
+    assert np.allclose(trk.tangent_at(0.4), (1.0, 0.0))
+    assert np.allclose(trk.tangent_at(10.0), (1.0, 0.0))     # clamped at the end
+    trk.set_path([[0.1, 0.06]])
+    assert np.allclose(trk.tangent_at(0.0), (0.0, 0.0))

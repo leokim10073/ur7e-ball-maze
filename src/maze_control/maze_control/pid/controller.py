@@ -95,5 +95,10 @@ class PidPathController:
         else:
             self.target = self.tracker.update(self.pos)
             self.status = 'reached' if self.tracker.reached else 'tracking'
-            return self.pid.step(self.target, self.pos, self.vel, dt)
+            return self._law_step(dt)
         return self.pid.step_zero(dt)
+
+    def _law_step(self, dt):
+        """One step of the control law while tracking (self.target is set).
+        Controllers with another kind of reference override this."""
+        return self.pid.step(self.target, self.pos, self.vel, dt)

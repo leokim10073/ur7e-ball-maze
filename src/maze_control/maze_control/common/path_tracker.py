@@ -60,6 +60,16 @@ class PathTracker:
         r = (s - self._s[i]) / self._seg_len[i]
         return self.points[i] + r * self._seg[i]
 
+    def tangent_at(self, s):
+        """Unit direction of the path at arc length s (clamped to the path);
+        zeros for a single-point path."""
+        if len(self.points) == 1:
+            return np.zeros(2)
+        s = float(np.clip(s, 0.0, self.length))
+        i = int(np.searchsorted(self._s, s, side='right') - 1)
+        i = min(max(i, 0), len(self._seg) - 1)
+        return self._seg[i] / self._seg_len[i]
+
     # ------------------------------------------------------------ projection
     def _project(self, p, s_lo=-np.inf, s_hi=np.inf):
         """Closest point to p on the part of the path with s in [s_lo, s_hi].
