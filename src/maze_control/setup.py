@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'pid_node = maze_control.pid.node:main',
             'lqr_node = maze_control.lqr.node:main',
+            'mpc_node = maze_control.mpc.node:main',
         ],
     },
 )

@@ -400,6 +400,18 @@ Two configs, same keys:
 
 Why 3 cm in the sim: with a 5 cm look-ahead the target point lies past the wall tip at a U-turn; after a replan from next to the tip the LQR pulled the ball straight into it and the ball stuck there. The predictor matters most with a long delay: at 150 ms of dead time `lqr.yaml` still tracks the L path when `model.delay` matches, and goes unstable with the predictor off. The LQR does not know the tilt limit, so heavier weights make it oscillate on large errors; that is what MPC adds.
 
+### MPC
+
+```bash
+ros2 launch maze_control mpc.launch.py use_sim_time:=false   # true in the MuJoCo sim
+```
+
+`mpc_node` has the same state input, tilt output, watchdog and stop rules as `pid_node` and `lqr_node` (it reuses `PidPathController`), but reads the planner's full route on `/maze/route` (`PlannedRoute`, [contract 3](docs/interfaces.md)), because it needs the corridors. Run one ball controller at a time. Design: [`docs/superpowers/specs/2026-11-22-mpc-design.md`](docs/superpowers/specs/2026-11-22-mpc-design.md).
+
+Every period it solves a constrained finite-time optimal control problem (CFTOC) over `horizon` steps (30, 0.5 s), on the LQR's model of both axes. The cost penalises the distance to a reference moving along the path at `v_ref` (slowing to rest over the last `slow_dist`), the velocity error, and the tilt. The tilt and tilt-rate limits are hard constraints, and the predicted ball centre must stay in the corridor of its reference point: a soft constraint, with a slack that is heavily penalised so the problem stays solvable when noise puts the ball just outside. The problem is built once with CasADi (`Opti`, OSQP backend, `casadi==3.6.7` from the Containerfile) and warm-started from the previous plan. Like the LQR, it estimates the tilt from the commands sent and predicts the state past the dead time. When a solve fails or takes longer than `solve_budget` (12 ms), it plays the next step of the last good plan; after `max_fallback` (5) failures in a row it levels the board. All values are in [`config/mpc.yaml`](src/maze_control/config/mpc.yaml).
+
+Offline, with corridors 5 mm either side of the path, the MPC never leaves them on the straight, L and U paths, where the LQR leaves them by 3.9 mm (L) and 3.7 mm (U). It is slower with the conservative `v_ref = 0.1 m/s`: it reaches the goal in 4.7 s, 6.9 s and 8.5 s (LQR: 4.2 s, 6.2 s, 7.6 s). A solve takes about 2 ms (worst 3.4 ms). With a 1-point route whose only corridor does not hold the ball, the MPC bangs around the corridor's edge. That does not happen with the planner, whose routes start at the ball and are replanned when it leaves its corridor.
+
 ### Tests (no ROS needed)
 
 ```bash
@@ -407,7 +419,7 @@ cd src/maze_control && python3 -m pytest test
 python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
 ```
 
-`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header).
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header). `test_mpc.py` covers the MPC: the CFTOC (limits, corridors, agreement with the LQR without constraints, solve time), the delay predictor, the tilt observer, the solver fallback, the horizon reference and corridor lookup, and closed loops on all paths, with corridors, noise and a longer delay. It needs casadi (in the container).
 
 ## Arm control (tilt)
 
