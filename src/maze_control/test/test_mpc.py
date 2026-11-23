@@ -299,6 +299,7 @@ def test_horizon_reference_advances_and_stops_at_goal(mpc_params):
 def test_corridor_lookup_follows_arc_length(mpc_params):
     params = copy.deepcopy(mpc_params)
     params['mpc']['v_ref'] = 1.0           # the horizon reaches past the corner
+    params['mpc']['v_turn'] = 1.0          # without slowing for it
     ctrl, path = started(params, 'L', pos=(-0.18, -0.05))
     ref = ctrl.horizon_ref()
     _, corr, _ = corridors_for(path, 0.02)
@@ -418,3 +419,88 @@ def test_resting_ball_just_outside_corridor_is_controlled(mpc_params, sim_params
     log = run_closed_loop(ctrl, BallSim.from_params(sim_params, pos0=p0), path, 2.0)
     assert np.abs(log['cmd']).max() > 0.01
     assert np.linalg.norm(log['pos'][-1] - np.array(p0)) > 0.02
+
+
+# --------------------------------------------------- corner speed profile
+def corner_params(mpc_params, v_ref=0.15, v_turn=0.06, a_ref=0.25, window=0.02):
+    p = copy.deepcopy(mpc_params)
+    p['mpc'].update(v_ref=v_ref, v_turn=v_turn, a_ref=a_ref, corner_window=window)
+    return p
+
+
+def profile_on(params, path):
+    ctrl = MpcPathController.from_params(params)
+    ctrl.on_path(np.asarray(path, float))
+    return ctrl, ctrl.speed_profile
+
+
+def test_profile_off_is_constant_v_ref(mpc_params):
+    p = corner_params(mpc_params, v_ref=0.1, v_turn=0.1)
+    _, (s, v) = profile_on(p, SCENARIOS['L'][0])
+    assert np.all(v == 0.1)
+
+
+def test_profile_straight_runs_at_v_ref(mpc_params):
+    _, (s, v) = profile_on(corner_params(mpc_params), SCENARIOS['line'][0])
+    assert v == pytest.approx(0.15)
+
+
+def test_profile_slows_to_v_turn_at_corner(mpc_params):
+    v_turn, a = 0.06, 0.25
+    _, (s, v) = profile_on(corner_params(mpc_params, v_turn=v_turn, a_ref=a),
+                           SCENARIOS['L'][0])
+    corner = 0.30
+    assert np.interp(corner, s, v) == pytest.approx(v_turn, abs=1e-3)
+    bound = np.sqrt(v_turn ** 2 + 2 * a * np.abs(s - corner))
+    assert np.all(v <= bound + 1e-6)          # brakes before, speeds up after, at a_ref
+    assert np.interp(corner - 0.15, s, v) == pytest.approx(0.15)
+    assert np.interp(corner + 0.15, s, v) == pytest.approx(0.15)
+
+
+def test_profile_u_turn_bounded_by_both_corners(mpc_params):
+    v_turn, a = 0.06, 0.05
+    _, (s, v) = profile_on(corner_params(mpc_params, v_turn=v_turn, a_ref=a),
+                           SCENARIOS['U'][0])
+    c1, c2 = 0.33, 0.48
+    mid = (c1 + c2) / 2
+    expect = np.sqrt(v_turn ** 2 + 2 * a * (mid - c1))
+    assert np.interp(mid, s, v) == pytest.approx(expect, abs=2e-3)
+    assert np.all(np.abs(np.diff(v ** 2)) <= 2 * a * np.diff(s) + 1e-9)
+
+
+def test_profile_staircase_is_not_a_corner(mpc_params):
+    # 8-connected 5 mm cells along a 30 deg line, as A* leaves them
+    d = np.array([np.cos(np.pi / 6), np.sin(np.pi / 6)])
+    pts = [np.zeros(2)]
+    for _ in range(60):
+        steps = [np.array([0.005, 0.0]), np.array([0.005, 0.005])]
+        nxt = [pts[-1] + st for st in steps]
+        off = [abs(q[0] * d[1] - q[1] * d[0]) for q in nxt]
+        pts.append(nxt[int(np.argmin(off))])
+    _, (s, v) = profile_on(corner_params(mpc_params), np.array(pts))
+    assert v.min() >= 0.85 * 0.15
+
+
+def test_horizon_velocity_follows_profile(mpc_params):
+    p = corner_params(mpc_params)
+    ctrl, path = started(p, 'L')
+    ctrl.tracker.progress = 0.25              # 5 cm before the corner
+    ctrl.on_state(0.1, (-0.18, -0.10), (0.0, 0.0))
+    ctrl.update(0.1)
+    ref = ctrl.horizon_ref()
+    speed = np.linalg.norm(ref.V, axis=0)
+    expect = [ctrl._speed(s) for s in arc_of(ctrl, ref.R)]
+    assert speed == pytest.approx(expect, abs=1e-6)
+    assert speed.min() < 0.1                  # the horizon reaches the corner
+
+
+def test_profile_degenerate_paths(mpc_params):
+    p = corner_params(mpc_params)
+    for path in (SCENARIOS['point'][0], [[0.0, 0.0], [0.01, 0.0]],
+                 [[0.0, 0.0], [0.01, 0.0], [0.01, 0.01]]):
+        ctrl, prof = profile_on(p, path)
+        if prof is not None:
+            assert np.all(np.isfinite(prof[1])) and np.all(prof[1] > 0)
+        assert np.isfinite(ctrl._speed(0.0))
+    ctrl, _ = profile_on(p, np.zeros((0, 2)))
+    assert ctrl.speed_profile is None
