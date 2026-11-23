@@ -16,9 +16,9 @@ P = dict(
     base_t=6.0,      # base plate thickness (maze floor at z = base_t)
     margin=3.0,      # lip between plate edge and outer wall
     wall_t=6.0,      # wall thickness
-    wall_h=18.0,     # wall height above the floor
+    wall_h=22.0,     # wall height above the floor
     ball_d=20.0,     # ball diameter the print was sized for (sim uses its own radius)
-    goal_d=30.0,     # goal pocket diameter
+    goal_d=34.0,     # goal pocket diameter
     goal_depth=3.0,  # goal pocket depth: the ball needs a ~45 deg tilt to climb out
     start_ring=(11.0, 13.0, 0.6),  # start marker: engraved ring (inner r, outer r, depth);
                                    # a ring, not a pocket, so the ball rolls off at a small tilt

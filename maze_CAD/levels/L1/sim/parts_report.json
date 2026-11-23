@@ -37,7 +37,7 @@
       "max_mm": [
         147.0,
         147.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -50,7 +50,7 @@
       "max_mm": [
         147.0,
         -141.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -63,7 +63,7 @@
       "max_mm": [
         -141.0,
         147.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -76,7 +76,7 @@
       "max_mm": [
         147.0,
         147.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -89,7 +89,7 @@
       "max_mm": [
         99.0,
         51.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -102,7 +102,7 @@
       "max_mm": [
         147.0,
         -45.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -115,7 +115,7 @@
       "max_mm": [
         3.0,
         147.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -128,7 +128,7 @@
       "max_mm": [
         3.0,
         3.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
@@ -141,19 +141,19 @@
       "max_mm": [
         3.0,
         -45.0,
-        18.0
+        22.0
       ],
       "watertight": true
     },
     "wall_9.stl": {
       "min_mm": [
-        105.0,
-        -87.0,
+        103.0,
+        -89.0,
         -6.0
       ],
       "max_mm": [
-        135.0,
-        -57.0,
+        137.0,
+        -55.0,
         -3.0
       ],
       "watertight": true
@@ -164,7 +164,7 @@
       0.12,
       -0.072
     ],
-    "radius_m": 0.015,
+    "radius_m": 0.017,
     "depth_m": 0.003,
     "note": "a through hole in base.stl closed by the goal_pocket_floor disk (see wall_names); center and radius go in sim.yaml board.goal_hole"
   },
@@ -252,53 +252,53 @@
   },
   "wall_hull_check": {
     "wall_0": {
-      "volume_mm3": 31752.0,
-      "hull_volume_mm3": 31752.0,
+      "volume_mm3": 38808.0,
+      "hull_volume_mm3": 38808.0,
       "diff_percent": 0.0
     },
     "wall_1": {
-      "volume_mm3": 31752.0,
-      "hull_volume_mm3": 31752.0,
+      "volume_mm3": 38808.0,
+      "hull_volume_mm3": 38808.0,
       "diff_percent": 0.0
     },
     "wall_2": {
-      "volume_mm3": 31752.0,
-      "hull_volume_mm3": 31752.0,
+      "volume_mm3": 38808.0,
+      "hull_volume_mm3": 38808.0,
       "diff_percent": 0.0
     },
     "wall_3": {
-      "volume_mm3": 31752.0,
-      "hull_volume_mm3": 31752.0,
+      "volume_mm3": 38808.0,
+      "hull_volume_mm3": 38808.0,
       "diff_percent": 0.0
     },
     "wall_4": {
-      "volume_mm3": 26568.0,
-      "hull_volume_mm3": 26568.0,
+      "volume_mm3": 32472.0,
+      "hull_volume_mm3": 32472.0,
       "diff_percent": 0.0
     },
     "wall_5": {
-      "volume_mm3": 26568.0,
-      "hull_volume_mm3": 26568.0,
+      "volume_mm3": 32472.0,
+      "hull_volume_mm3": 32472.0,
       "diff_percent": 0.0
     },
     "wall_6": {
-      "volume_mm3": 5832.0,
-      "hull_volume_mm3": 5832.0,
+      "volume_mm3": 7128.0,
+      "hull_volume_mm3": 7128.0,
       "diff_percent": 0.0
     },
     "wall_7": {
-      "volume_mm3": 5832.0,
-      "hull_volume_mm3": 5832.0,
+      "volume_mm3": 7128.0,
+      "hull_volume_mm3": 7128.0,
       "diff_percent": 0.0
     },
     "wall_8": {
-      "volume_mm3": 5832.0,
-      "hull_volume_mm3": 5832.0,
+      "volume_mm3": 7128.0,
+      "hull_volume_mm3": 7128.0,
       "diff_percent": 0.0
     },
     "wall_9": {
-      "volume_mm3": 2114.5,
-      "hull_volume_mm3": 2114.5,
+      "volume_mm3": 2716.0,
+      "hull_volume_mm3": 2716.0,
       "diff_percent": 0.0
     }
   },

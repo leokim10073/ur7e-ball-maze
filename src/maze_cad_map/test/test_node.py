@@ -52,7 +52,7 @@ def test_late_subscriber_gets_the_map(ros):
     assert (m.walls.info.origin.position.x, m.walls.info.origin.position.y) == pytest.approx((-0.15, -0.15))
     assert len(m.walls.data) == 3600 and set(m.walls.data) == {0, 100}
     assert (m.start.x, m.start.y) == pytest.approx((-0.12, 0.12))
-    assert (m.goal.x, m.goal.y, m.goal.radius) == pytest.approx((0.12, -0.072, 0.015))
+    assert (m.goal.x, m.goal.y, m.goal.radius) == pytest.approx((0.12, -0.072, 0.017))
     assert list(grids[0].data) == list(m.walls.data)
 
 
