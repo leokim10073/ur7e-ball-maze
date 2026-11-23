@@ -48,11 +48,13 @@ def build_maze(L):
     tab = tab.edges("|Z and <X").fillet(4)
     body = body.union(tab)
 
-    # finger-pad locating recesses on top and bottom faces of the tab
+    # finger recesses on the top and bottom faces of the tab, open at the tab tip: the Hand-E
+    # fingertip's grip face is one flat 40 mm strip that comes in over the tip, so a lip there
+    # would hold it 1 mm off the recess floor. The side walls and the inner end locate the finger.
     px, py, pd = P["pad_x"], P["pad_y"], P["pad_depth"]
-    x0 = -hl + 4  # 4 mm lip at the tab tip keeps the fingers from sliding off
-    body = body.cut(box(x0, B / 2 - py / 2, ht - pd, px, py, pd + 0.01))
-    body = body.cut(box(x0, B / 2 - py / 2, -0.01, px, py, pd + 0.01))
+    x0 = -hl - 1.0  # starts 1 mm past the tip so the cut leaves no sliver
+    body = body.cut(box(x0, B / 2 - py / 2, ht - pd, px + 1.0, py, pd + 0.01))
+    body = body.cut(box(x0, B / 2 - py / 2, -0.01, px + 1.0, py, pd + 0.01))
 
     # ArUco corner pads: top surface flush with maze floor (z = base_t)
     tsz = sticker_size() + 0.5   # +0.5 clearance for the sticker

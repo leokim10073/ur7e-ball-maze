@@ -96,7 +96,16 @@ Checked by rendering the L1 board from above in MuJoCo: OpenCV 5's `ArucoDetecto
 
 ## Print (`levels/<L>/print/`)
 
-Frame: origin at the plate's bottom-left corner (top view), base bottom at z = 0, units mm. `maze_<L>_onepiece.step/.stl` is the whole 350×416 board; the four `tile_*` pieces (largest 200×238) and `splice_strip_*` are for printers smaller than that, joined with 1.75 mm filament dowels. The print has the goal pocket, the start ring, finger-pad recesses on the tab, and 0.4 mm recesses for the stickers.
+Frame: origin at the plate's bottom-left corner (top view), base bottom at z = 0, units mm. `maze_<L>_onepiece.step/.stl` is the whole 350×416 board; the four `tile_*` pieces (largest 200×238) and `splice_strip_*` are for printers smaller than that, joined with 1.75 mm filament dowels. The print has the goal pocket, the start ring, finger recesses on the tab, and 0.4 mm recesses for the stickers.
+
+### Gripper fit (Robotiq Hand-E, V-groove fingertips)
+
+The tab is 12 mm thick, with a 1 mm recess top and bottom for each fingertip: 23 mm wide, 42 mm long, open at the tab tip (`pad_x`, `pad_y`, `pad_depth` in `maze_params.py`). The fingertip (Robotiq `HAND_E_FINGER_VGROOVE`, 21 mm wide) has one flat 40 mm grip face with a V-groove down its middle, so it has to come in over the tab tip; a lip there would hold it 1 mm off the recess floor, so there isn't one.
+
+Checked with both STEP models on `maze_L1_onepiece.step`, the fingers' mounting face 2 mm from the tab tip:
+- The fingers touch the recess floor along all 38 mm on the tab (both lands of the V-groove, ~230 mm² per finger), with 1.0 mm to each side wall and 4 mm to the inner end. The grip faces are 10 mm apart (Hand-E stroke 0–50 mm).
+- The Hand-E housing stays 1.9 mm clear of the board.
+- Only the recess's inner end and side walls locate the fingers; pulling the board out along −x is held by friction alone.
 
 ## ArUco stickers (`aruco/`)
 

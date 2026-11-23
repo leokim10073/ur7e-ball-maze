@@ -49,7 +49,7 @@ def draw_top(ax, L):
     ax.add_patch(Rectangle((-hl, B / 2 - hw / 2), hl, hw, fc="#98c1d9", ec=INK, lw=1))
     ax.text(-hl / 2, B / 2, "Grip tab\n夾取平板", ha="center", va="center", fontsize=7.5, color=INK)
     # finger pads (illustrative)
-    ax.add_patch(Rectangle((-hl + 4, B / 2 - P["pad_y"] / 2), P["pad_x"], P["pad_y"], fc="none", ec=INK, lw=0.7, ls="--"))
+    ax.add_patch(Rectangle((-hl, B / 2 - P["pad_y"] / 2), P["pad_x"], P["pad_y"], fc="none", ec=INK, lw=0.7, ls="--"))
     # ArUco corner pads
     tsz = sticker_size()
     for k, (x, y, S, (cx, cy)) in tag_pads().items():
@@ -149,12 +149,12 @@ def draw_notes(ax):
         "共用規格（三關一致，方便換關）\n"
         f"• 底板 300×300×6，外框牆內距 294，牆厚 6、高 {P['wall_h']:g}\n"
         "• 夾取平板 50×60×12 在左側中央，夾爪側向進入、夾上下兩面\n"
-        "  上下各有 1 mm 定位凹槽（36×30）防滑；三關同位置 → 姿態不必重教\n"
+        f"  上下各有 {P['pad_depth']:g} mm 指尖凹槽（{P['pad_x']:g}×{P['pad_y']:g}，從末端開口）；三關同位置 → 姿態不必重教\n"
         f"• 起點 S 為 0.6 mm 刻環（不是凹槽，球才滾得出去）；終點 G 為 Ø{P['goal_d']:g}×{P['goal_depth']:g} 凹槽，球到達後會被留住\n"
         "• 四角 ArUco 平台 58×58，頂面與迷宮地板同高（z=6），\n"
         "  有 0.4 mm 定位凹槽放 50×50 貼紙（標記 40 + 白邊 5）\n\n"
         "假設（請確認）\n"
-        "• 夾爪未定：平板厚 12，2F-85 / Hand-E 都夾得到\n"
+        "• 夾爪 Robotiq Hand-E + V-groove 指尖（寬 21，夾持面長 40）\n"
         f"• 球 Ø{P['ball_d']:g}\n"
         "• 一體版含平板與四角平台共 350×416；台面不夠 → 用 4 片拼接版（最大 200×238）"
     )
