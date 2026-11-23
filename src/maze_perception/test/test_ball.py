@@ -242,3 +242,29 @@ def test_jpeg(cfg, quality):
     b = find_ball(img, cfg.ball, cfg.rectified)
     assert b is not None and _err_mm(b, ball) < 0.5 and b.score > 0.6
 
+
+
+MARBLE = 0.0125  # the 25 mm glass marble (#19)
+
+
+@pytest.mark.parametrize("color,tol", [((40, 70, 170), 0.3),  # blue, as #19 suggests: placed by lightness
+                                       ((199, 199, 211), 0.6)])  # grey on tan: placed by color
+def test_marble_under_jpeg(cfg, color, tol):
+    # MJPEG keeps color at half resolution and a pixel or so off; that pulled a blue ball 1-2 mm
+    import cv2
+
+    big = replace(cfg, ball=replace(cfg.ball, radius=MARBLE))
+    ball = (0.05, 0.10)
+    for quality in (50, 80):
+        img = scene(big, ball, ball_rgb=color)
+        img = cv2.imdecode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])[1], cv2.IMREAD_UNCHANGED)
+        b = find_ball(img, big.ball, big.rectified)
+        assert b is not None and _err_mm(b, ball) < tol, quality
+
+
+def test_ball_resolution(cfg):
+    from maze_perception.ball import BALL_PX, ball_resolution
+
+    assert ball_resolution(cfg.ball, cfg.rectified) == cfg.rectified  # the 14 mm sim ball: full 2 px/mm
+    marble = ball_resolution(replace(cfg.ball, radius=MARBLE), cfg.rectified)
+    assert marble.px_per_m * MARBLE == pytest.approx(BALL_PX) and marble.x_range == cfg.rectified.x_range

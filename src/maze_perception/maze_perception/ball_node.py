@@ -15,9 +15,14 @@ Publishes as board_tracker, and
                before the ball was ever seen (or after `tracking.lost_reset` without it), zeros with
                an all-zero covariance (unknown). Best effort, keep last 1.
 
+Parameter ball_radius (m, default 0 = perception.yaml's): the ball's radius, for the real ball before
+the config follows it.
+
 Every 10 s it logs, besides board_tracker's numbers, the share of frames with the ball and the
 capture-to-publish latency (median and worst), which a controller has to predict across.
 """
+
+from dataclasses import replace
 
 import numpy as np
 import rclpy
@@ -44,6 +49,10 @@ def walls_from_map(msg: MazeMap) -> WallGrid:
 class BallTracker(BoardTracker):
     def __init__(self, **kwargs):
         super().__init__(node_name="ball_tracker", **kwargs)
+        radius = float(self.declare_parameter("ball_radius", 0.0).value)
+        if radius > 0:  # the real ball, while perception.yaml still has the sim's (#19)
+            self.cfg = replace(self.cfg, ball=replace(self.cfg.ball, radius=radius))
+            self.get_logger().info(f"ball radius {1000 * radius:.1f} mm (ball_radius parameter)")
         self.filter = BallFilter(self.cfg.tracking)
         self.walls = None
         self.create_subscription(MazeMap, "/maze/map", self._on_map, MAP_QOS)

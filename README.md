@@ -206,7 +206,7 @@ The bringup tests launch the whole sim headless (about 70 s). They refuse to sta
 
 ## Perception
 
-`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that; P4, the ball's state (position, velocity, tracking flag) on `/ball/state` ([contract 2](docs/interfaces.md)); P5, robustness to webcam images and offline replay of rosbags. The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
+`maze_perception` turns the overhead camera image into board coordinates. Work package: #13. So far: P1, the board pose from the four ArUco corner markers, and a rectified top-down image of the board; P3, the ball's position from that; P4, the ball's state (position, velocity, tracking flag) on `/ball/state` ([contract 2](docs/interfaces.md)); P5, robustness to webcam images and offline replay of rosbags; for P6, a lab kit for the real C922 ([runbook](docs/perception_lab.md)). The maze map is not built here: it comes from the CAD (`maze_cad_map`, #18).
 
 The geometry, the ball finder and the filter are plain Python libraries (`board_pose.py`, `ball.py`, `ball_filter.py`, no ROS). `ball_tracker` is the ROS node around them: per camera frame it finds the markers once, then the board pose, the ball and the filtered state. `board_tracker` is the same without the ball, for the board pose alone.
 
@@ -303,6 +303,14 @@ ros2 run maze_perception replay_bag <bag> --csv replay.csv
 ```
 
 It takes raw or compressed images. The walls come from the bag's `/maze/map`, else from the CAD (`--cad-scripts`, `--level`). With the sim's `/sim/ball/pose` and `/sim/board/pose` in the bag, each frame gets the ball's true position in the board frame and the errors are summed up. The CSV has one row per frame: board found, the raw measurement and its score, the filtered state, `tracking_ok`, and the truth. The bag is read twice (first all but the images, then image by image), so a long bag never has to fit in memory.
+
+### On the real camera (P6)
+
+[docs/perception_lab.md](docs/perception_lab.md) is the lab runbook for #45: preflight, the C922 on the same topics as the sim camera (`camera.launch.py`, `usb_cam`, 720p at 60 fps in MJPEG), focus/exposure/white balance locked (`c922_setup.sh`), calibration, everything in one launch (`real.launch.py`, wall clock, the 25 mm marble), the #45 numbers (`p6_check stream`, `p6_check spots`) and a bag for `replay_bag`.
+
+Two changes to the ball finder came with it, both checked on synthetic camera images of the 25 mm marble:
+- **Placed by lightness when it can be.** MJPEG keeps color at half resolution and about a pixel off; that pulled a blue ball 1–2 mm. Where the ball differs from the floor in lightness too, lightness (full resolution) places it: open-floor error under JPEG 50–80 is now below 0.1 mm for blue, green and red balls. The sim's grey ball, close to the floor in lightness, is still placed by color.
+- **Searched at ~14 px per ball radius.** The 25 mm ball at the full 2 px/mm took 25–35 ms a frame; at its own scale (`ball_resolution()`, 1.1 px/mm) it takes ~10 ms, as the 14 mm ball does.
 
 ### Tests (inside `maze-sim`)
 
