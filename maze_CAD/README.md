@@ -61,7 +61,7 @@ Frame: origin at the center of the 300×300 plate, **z = 0 on the maze floor** (
 |---|---|
 | `base.stl` | Plate and the four ArUco pads, with the start ring (0.6 mm), any trap holes, and a through hole for the goal |
 | `handle.stl` | The grip tab outside the plate; bottom flush with the base bottom, as printed |
-| `wall_<k>.stl` | One straight box per wall, outer frame included. **The last one is the goal pocket's floor**, a Ø30 × 3 mm disk under the goal hole. `parts_report.json` → `wall_names` says which is which |
+| `wall_<k>.stl` | One straight box per wall, outer frame included. **The last one is the goal pocket's floor**, a Ø34 × 3 mm disk under the goal hole. `parts_report.json` → `wall_names` says which is which |
 | `aruco/aruco_<corner>.obj` + `.png` | One textured sticker per corner marker (see below) |
 | `parts_report.json` | Bounding boxes, goal and start for `sim.yaml`, handle, ArUco poses, and the check results |
 
@@ -77,9 +77,9 @@ colcon build
 
 ### Why the goal is a hole plus a disk
 
-The sim splits `base.stl` into convex pieces with CoACD, and CoACD fills a 3 mm pocket back in (it is shallow next to a 416 mm plate), so the ball would roll over the goal. It does keep a through hole open, and it takes every `wall_*.stl` as its exact convex hull. So the base gets a Ø30 through hole and the floor disk closes it 3 mm down. Checked on L1 with the sim's own converter: the collision floor is at −3 mm across the hole out to a radius of 12–13 mm (CoACD rounds the hole slightly smaller than 15 mm), which is enough for the 7 mm sim ball to sit in it.
+The sim splits `base.stl` into convex pieces with CoACD, and CoACD fills a 3 mm pocket back in (it is shallow next to a 416 mm plate), so the ball would roll over the goal. It does keep a through hole open, and it takes every `wall_*.stl` as its exact convex hull. So the base gets a Ø34 through hole and the floor disk closes it 3 mm down. Checked on L1 with the sim's own converter: the collision floor is at −3 mm across the hole out to a radius of about 15 mm (CoACD rounds the hole slightly smaller than 17 mm), so the Ø25 ball rests on the floor disk with about 5 mm to spare from the hole's edge.
 
-The start is a 0.6 mm engraved ring, not a pocket: a ball of radius r in a pocket of depth d needs a tilt of acos((r − d)/r) to climb out, so even a 1.5 mm pocket would hold a Ø20 ball until 32°, far beyond the board's ±5°. The ring is filled in the collision geometry (too shallow for CoACD), so it is visual only.
+The start is a 0.6 mm engraved ring, not a pocket: a ball of radius r in a pocket of depth d needs a tilt of acos((r − d)/r) to climb out, so even a 1.5 mm pocket would hold the Ø25 ball until 28°, far beyond the board's ±5°. The ring is filled in the collision geometry (too shallow for CoACD), so it is visual only.
 
 ### ArUco markers in the sim
 

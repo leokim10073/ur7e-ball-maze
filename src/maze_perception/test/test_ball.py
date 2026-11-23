@@ -98,7 +98,7 @@ def test_ball_against_walls(cfg):
     # touching the left outer wall, and an inner horizontal wall from below
     x0 = cfg.ball.floor[0]
     r = cfg.ball.radius
-    for ball in [(x0 + r, 0.08), (x0 + r, -0.13)]:
+    for ball in [(x0 + r, 0.08), (x0 + r, cfg.ball.floor[2] + r + 0.004)]:  # 4 mm above the bottom wall
         b = find_ball(scene(cfg, ball), cfg.ball, cfg.rectified)
         assert b is not None and _err_mm(b, ball) < 0.5, ball
     name, (sx0, sx1, sy0, sy1) = next((k, v) for k, v in cad_walls().items()
@@ -156,7 +156,7 @@ def test_ball_settings_are_checked(tmp_path):
     src = (PKG / "config" / "perception.yaml").read_text()
     for old, new, msg in [("min_score: 0.5", "min_score: 1.5", "ball.min_score"),
                           ("not_floor: 20.0", "not_floor: 0", "ball.radius, ball.wall_height and ball.not_floor"),
-                          ("radius: 0.007 ", "radius: 0.001 ", "ball.radius is 2.0 px"),
+                          ("radius: 0.0125 ", "radius: 0.001 ", "ball.radius is 2.0 px"),
                           ("floor: [-0.141, 0.141,", "floor: [-0.2, 0.141,", "inside the rectified area"),
                           ("floor: [-0.141, 0.141,", "floor: [0.141, -0.141,", "ball.floor x")]:
         p = tmp_path / "p.yaml"

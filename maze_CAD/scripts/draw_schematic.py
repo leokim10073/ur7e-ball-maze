@@ -112,10 +112,10 @@ def draw_section(ax, L):
     # goal pocket (illustrative position)
     gx = 270; gd = P["goal_d"]
     ax.add_patch(Rectangle((gx - gd / 2, bt - P["goal_depth"]), gd, P["goal_depth"], fc="white", ec=GOAL, lw=1))
-    ax.text(gx, -9, "Goal 凹槽 Ø30 深3", ha="center", fontsize=7.5, color=GOAL)
+    ax.text(gx, -9, f"Goal 凹槽 Ø{gd:g} 深{P['goal_depth']:g}", ha="center", fontsize=7.5, color=GOAL)
     dim_v(ax, B + 14, 0, bt, "6")
-    dim_v(ax, B + 34, bt, bt + wh, "18")
-    ax.text(bx + 14, bt + P["ball_d"] / 2, "球 Ø20", fontsize=7.5, color=INK)
+    dim_v(ax, B + 34, bt, bt + wh, f"{wh:g}")
+    ax.text(bx + 14, bt + P["ball_d"] / 2, f"球 Ø{P['ball_d']:g}", fontsize=7.5, color=INK)
     ax.set_xlim(-110, B + 50); ax.set_ylim(-26, 50)
     ax.set_aspect("equal"); ax.axis("off")
     ax.set_title("側視剖面 Side section", fontsize=11, loc="left", color=INK)
@@ -126,7 +126,7 @@ def draw_plan(ax):
     rows = [
         ["", "Level 1 簡單", "Level 2 中等", "Level 3 困難"],
         ["格數 Grid", "6 × 6", "7 × 7", "8 × 8"],
-        ["通道寬 Corridor", "42 mm (2.1×球)", "36 mm (1.8×球)", "30 mm (1.5×球)"],
+        ["通道寬 Corridor", "42 mm (1.7×球)", "36 mm (1.4×球)", "32 mm (1.3×球)"],
         ["路徑", "3 條 S 型車道\n無死路", "多轉角\n3–4 條死路", "長路徑 + 窄彎\n死路多"],
         ["陷阱洞 Holes", "無", "無", "2–3 個 Ø26 洞"],
         ["測試目標", "MPC 基本收斂\n視覺追蹤", "轉角精度\n路徑規劃", "安全邊界\n約束 MPC"],
@@ -147,15 +147,15 @@ def draw_notes(ax):
     ax.axis("off")
     notes = (
         "共用規格（三關一致，方便換關）\n"
-        "• 底板 300×300×6，外框牆內距 294，牆厚 6、高 18\n"
+        f"• 底板 300×300×6，外框牆內距 294，牆厚 6、高 {P['wall_h']:g}\n"
         "• 夾取平板 50×60×12 在左側中央，夾爪側向進入、夾上下兩面\n"
         "  上下各有 1 mm 定位凹槽（36×30）防滑；三關同位置 → 姿態不必重教\n"
-        "• 起點 S 為 0.6 mm 刻環（不是凹槽，球才滾得出去）；終點 G 為 Ø30×3 凹槽，球到達後會被留住\n"
+        f"• 起點 S 為 0.6 mm 刻環（不是凹槽，球才滾得出去）；終點 G 為 Ø{P['goal_d']:g}×{P['goal_depth']:g} 凹槽，球到達後會被留住\n"
         "• 四角 ArUco 平台 58×58，頂面與迷宮地板同高（z=6），\n"
         "  有 0.4 mm 定位凹槽放 50×50 貼紙（標記 40 + 白邊 5）\n\n"
         "假設（請確認）\n"
         "• 夾爪未定：平板厚 12，2F-85 / Hand-E 都夾得到\n"
-        "• 球 Ø20（鋼珠或彩色樹脂球，視覺較好追）\n"
+        f"• 球 Ø{P['ball_d']:g}\n"
         "• 一體版含平板與四角平台共 350×416；台面不夠 → 用 4 片拼接版（最大 200×238）"
     )
     ax.text(0, 1, notes, va="top", ha="left", fontsize=8.3, color=INK, linespacing=1.55)
