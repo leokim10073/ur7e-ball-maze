@@ -1,0 +1,28 @@
+# usb_cam settings for the Logitech C922 over the maze (P6, docs/perception_lab.md).
+# Topics and frame match the sim camera, so everything downstream runs unchanged:
+#   /camera/image_raw, /camera/camera_info, frame camera_optical_frame.
+# Focus, exposure and white balance are locked afterwards by scripts/c922_setup.sh (v4l2-ctl), since
+# usb_cam's own control names do not match every kernel's.
+
+/**:
+  ros__parameters:
+    video_device: "/dev/video0"      # overridden by camera.launch.py's video_device argument
+    io_method: "mmap"
+    pixel_format: "mjpeg2rgb"        # 720p at 60 fps only comes as MJPEG over USB 2; decoded to rgb8
+    image_width: 1280
+    image_height: 720
+    framerate: 60.0
+    frame_id: "camera_optical_frame"
+    camera_name: "c922"
+    # camera_info_url: set by camera.launch.py (the calibration file, or the nominal one)
+    brightness: -1                   # -1: leave as is
+    contrast: -1
+    saturation: -1
+    sharpness: -1
+    gain: -1
+    autoexposure: false              # auto exposure halves the frame rate in dim light;
+    exposure: 100                    # c922_setup.sh sets the exposure for real
+    auto_white_balance: false
+    white_balance: 4000
+    autofocus: false
+    focus: -1

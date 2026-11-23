@@ -26,6 +26,8 @@ def generate_launch_description():
         DeclareLaunchArgument("with_map", default_value="true",
                               description="also start maze_cad_map (/maze/map); false if it already runs"),
         DeclareLaunchArgument("level", default_value="L1", description="maze level for maze_cad_map"),
+        DeclareLaunchArgument("ball_radius", default_value="0.0",
+                              description="m; 0 = perception.yaml's (the sim ball). The real marble: 0.0125 (#19)"),
     ]
     cad_map = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution(
@@ -44,6 +46,7 @@ def generate_launch_description():
             "image_topic": LaunchConfiguration("image_topic"),
             "camera_info_topic": LaunchConfiguration("camera_info_topic"),
             "rectified_rate": ParameterValue(LaunchConfiguration("rectified_rate"), value_type=float),
+            "ball_radius": ParameterValue(LaunchConfiguration("ball_radius"), value_type=float),
         }],
     )
     return LaunchDescription([*args, cad_map, tracker])

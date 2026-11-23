@@ -1,0 +1,24 @@
+# Nominal C922 intrinsics at 1280 x 720, for before it is calibrated: the sim camera's pinhole
+# (70.42 deg horizontal field of view, from the 78 deg diagonal), no distortion. Board pose and ball
+# positions are off by up to a few mm with it at the image edges. Replace with a calibration
+# (docs/perception_lab.md, step 3) as soon as possible.
+image_width: 1280
+image_height: 720
+camera_name: c922
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [906.9217, 0.0, 639.5, 0.0, 906.9217, 359.5, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [906.9217, 0.0, 639.5, 0.0, 0.0, 906.9217, 359.5, 0.0, 0.0, 0.0, 1.0, 0.0]

@@ -24,7 +24,7 @@ Color distance, not a color threshold: the sim ball is grey on a tan floor, the 
 on whatever the C922 makes of the real board; neither color is assumed.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, Tuple
 
 import cv2
@@ -35,6 +35,7 @@ from maze_perception.board_pose import (BoardPose, Camera, _rectified_to_board_m
 from maze_perception.config import BallSettings, RectifiedSettings
 
 RING = 1.5  # the ring around the disc reaches this many ball radii
+BALL_PX = 14.0  # largest ball radius in pixels the finder works at (the 14 mm sim ball at 2 px/mm)
 SMOOTH = 0.5  # mm, Gaussian sigma applied to the rectified image first: averages out camera noise
 NOISE_MARGIN = 2.0  # floor spreads (median distance) taken off every pixel's distance
 # The score that decides "ball or not" leaves out a band at the ball's edge, inside and out: blur,
@@ -44,6 +45,7 @@ SCORE_RING = (1.2, 1.7)  # radii: the floor around it
 # Least share of the disc (and of the ring) that must be floor (not a wall, not off the image) for a
 # position to count: the ball is never inside a wall, and in a corner a quarter of its ring is left.
 MIN_DISC_SUPPORT, MIN_RING_SUPPORT = 0.8, 0.2
+LIGHTNESS_MIN = 0.6  # the ball's score in lightness alone above which lightness places it
 
 
 @dataclass(frozen=True)
@@ -97,23 +99,27 @@ def _lab(rgb: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(np.ascontiguousarray(rgb[..., :3], np.float32) * np.float32(1 / 255), cv2.COLOR_RGB2Lab)
 
 
-def _floor_model(rgb: np.ndarray, area: np.ndarray) -> Tuple[np.ndarray, float]:
-    """(floor color in CIELAB, noise): the median color over `area` (the ball covers far below
-    half of it) and the median CIELAB distance of the floor pixels from it, i.e. how much this
-    camera's noise, JPEG blocks and uneven light spread the floor's color. From a sample."""
+def _floor_model(rgb: np.ndarray, area: np.ndarray) -> Tuple[np.ndarray, float, float]:
+    """(floor color in CIELAB, noise, lightness noise): the median color over `area` (the ball
+    covers far below half of it), and the median distance of the floor pixels from it, in all of
+    CIELAB and in lightness alone: how much this camera's noise, JPEG blocks and uneven light
+    spread the floor's color. From a sample."""
     idx = np.flatnonzero(area)
     idx = idx[::max(1, len(idx) // 5000)]
     lab = _lab(rgb.reshape(-1, 3)[idx][None])[0]
     floor = np.median(lab, axis=0)
-    return floor, float(np.median(np.linalg.norm(lab - floor, axis=1)))
+    return floor, float(np.median(np.linalg.norm(lab - floor, axis=1))), float(np.median(np.abs(lab[:, 0] - floor[0])))
 
 
-def _not_floor(rgb: np.ndarray, area: np.ndarray, cap: float, floor: np.ndarray, noise: float) -> np.ndarray:
-    """Per pixel, how unlike the floor it is, 0..1: its CIELAB distance from the floor color, less
-    NOISE_MARGIN times the floor's own spread (so noise alone scores about 0), over `cap`, at
-    most 1 (a dark wall counts no more than the ball); 0 outside `area`."""
+def _not_floor(rgb: np.ndarray, area: np.ndarray, cap: float, floor: np.ndarray, noise: float,
+               lightness_only: bool = False) -> np.ndarray:
+    """Per pixel, how unlike the floor it is, 0..1: its CIELAB distance from the floor color (or
+    its lightness difference alone), less NOISE_MARGIN times the floor's own spread (so noise
+    alone scores about 0), over `cap`, at most 1 (a dark wall counts no more than the ball); 0
+    outside `area`."""
     diff = _lab(rgb) - floor.astype(np.float32)
-    dist = cv2.sqrt(cv2.transform(diff * diff, np.ones((1, 3), np.float32)))
+    weights = np.array([[1, 0, 0]] if lightness_only else [[1, 1, 1]], np.float32)
+    dist = cv2.sqrt(cv2.transform(diff * diff, weights))
     dist = np.clip((dist - NOISE_MARGIN * noise) / cap, 0, 1)
     dist[~area] = 0
     return dist
@@ -234,7 +240,7 @@ def find_ball(rgb: np.ndarray, settings: BallSettings, rectified: RectifiedSetti
     search = _box_mask((x0 + m, x1 - m, y0 + m, y1 - m), rectified, (h, w))
 
     rgb = cv2.GaussianBlur(np.ascontiguousarray(rgb[..., :3]), (0, 0), SMOOTH * rectified.px_per_m / 1000)
-    floor_lab, noise = _floor_model(rgb, area)
+    floor_lab, noise, noise_l = _floor_model(rgb, area)
 
     # coarse: half resolution
     def half(mask):
@@ -268,16 +274,36 @@ def find_ball(rgb: np.ndarray, settings: BallSettings, rectified: RectifiedSetti
     score = _score_at(dist, area[rows, cols], col, row, r_px)
     if score < settings.min_score:
         return None
+    # Placed by lightness when the ball differs from the floor in lightness too: JPEG (the C922's
+    # MJPEG) keeps color at half resolution and a pixel or so off, which pulls a colored ball's
+    # center by up to 2 mm; lightness keeps full resolution. A grey ball on a light floor (the
+    # sim's) differs mostly in color and stays placed by color.
+    light = _not_floor(rgb[rows, cols], area[rows, cols], settings.not_floor, floor_lab, noise_l, lightness_only=True)
+    if _score_at(light, area[rows, cols], col, row, r_px) >= LIGHTNESS_MIN:
+        resp_l = _response(light, area[rows, cols], r_px)
+        rr, cc = np.unravel_index(int(np.argmax(np.where(near & search[rows, cols] & seen, resp_l, -np.inf))),
+                                  resp_l.shape)
+        col, row = _subpixel(resp_l, rr, cc)
     col, row = col + cols.start, row + rows.start
     x, y = rectified_to_board(np.array([[col, row]]), rectified)[0]
     return BallDetection(x=float(x), y=float(y), score=score, pixel=(col, row))
 
 
+def ball_resolution(settings: BallSettings, rectified: RectifiedSettings) -> RectifiedSettings:
+    """The rectified area at a scale where the ball's radius is at most BALL_PX pixels: enough for a
+    fraction of a millimeter, and the filters cost the same for any ball (the 25 mm marble at the
+    full 2 px/mm would take 25-35 ms a frame instead of ~10)."""
+    px_per_m = min(rectified.px_per_m, BALL_PX / settings.radius)
+    return rectified if px_per_m == rectified.px_per_m else replace(rectified, px_per_m=px_per_m)
+
+
 def locate_ball(image: np.ndarray, pose: BoardPose, camera: Camera, settings: BallSettings,
                 rectified: RectifiedSettings, walls: Optional[WallGrid] = None) -> Optional[BallDetection]:
     """The ball from a camera image (RGB) and the board pose found in it; walls: the maze map's
-    (/maze/map), if known."""
+    (/maze/map), if known. Searched in an image rectified at ball_resolution(); the detection's
+    pixel is in that image."""
     z = settings.radius
+    rectified = ball_resolution(settings, rectified)
     rgb = rectify(image, pose, camera, rectified, z)
     mask = None if walls is None else wall_mask(pose, camera, walls, settings, rectified, z)
     return find_ball(rgb, settings, rectified, rectified_coverage(pose, camera, rectified, z),

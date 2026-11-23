@@ -13,12 +13,14 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
+        ("lib/" + package_name, glob("scripts/*.sh")),  # ros2 run maze_perception <script>.sh
     ],
     install_requires=["setuptools"],
     entry_points={"console_scripts": [
         "board_tracker = maze_perception.board_node:main",
         "ball_tracker = maze_perception.ball_node:main",
         "replay_bag = maze_perception.replay:main",
+        "p6_check = maze_perception.p6_check:main",
     ]},
     zip_safe=True,
     maintainer="Zhuoren Li",
