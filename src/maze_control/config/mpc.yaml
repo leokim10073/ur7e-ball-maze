@@ -34,9 +34,11 @@ maze_mpc_controller:
       r_du: 0.0                   # smoothing of the command; 0 = off (the rate limit is a hard constraint)
       rho_lin: 10000.0            # corridor slack, linear (exact penalty) [1/m]
       rho_quad: 10000.0           # corridor slack, quadratic; 1e6 made the QP ill-conditioned (22 ms median)
-      v_ref: 0.1                  # reference speed along the path, on straights [m/s]
-      v_turn: 0.1                 # reference speed at a turn of 90 deg or more; = v_ref: no slowing [m/s]
-      a_ref: 0.25                 # the reference speed changes at most this fast along the path [m/s^2]
+      # Speeds from an offline sweep (20 randomized runs per path, 5 mm corridors): 0.2 / 0.08 / 0.3
+      # never left the corridor on line, L, U; a_ref 0.5 or v_turn 0.12 did. Constant 0.15: 15-40 %.
+      v_ref: 0.2                  # reference speed along the path, on straights [m/s]
+      v_turn: 0.08                # reference speed at a turn of 90 deg or more; = v_ref: no slowing [m/s]
+      a_ref: 0.3                  # the reference speed changes at most this fast along the path [m/s^2]
       corner_window: 0.02         # turn angle between the chords this far before and after [m]
       slow_dist: 0.05             # the reference speed drops linearly to 0 over the last slow_dist [m]
       solve_budget: 0.012         # a solve longer than this counts as failed [s]
