@@ -394,3 +394,27 @@ def test_mpc_with_noise_and_delay(run_mpc):
     log, path, ctrl = run_mpc('L', half_width=0.02, noise_pos=3e-4, delay=0.08)
     assert dist_to_goal(log, path)[-1] < 0.01
     assert np.median(ctrl.law.solve_times) < 0.008
+
+
+# ------------------------------------------------------------ review fixes
+def test_unconverged_solve_is_not_ok(lqr_params):
+    """An OSQP exit at max_iter is a failed solve, even when its U happens to
+    lie inside the limits."""
+    mpc = make_cftoc(lqr_params, osqp_opts={'max_iter': 5, 'eps_abs': 1e-5,
+                                            'eps_rel': 1e-5, 'polish': True})
+    # near the reference: 5 iterations leave U inside the limits, X0 off by ~1.5 mm
+    plan = mpc.solve(state(px=0.002), ref_const(mpc.N), np.zeros(2))
+    assert not plan.ok
+
+
+def test_resting_ball_just_outside_corridor_is_controlled(mpc_params, sim_params):
+    """Noise-free ball at rest 0.5 mm outside its corridor: slow slack-active
+    solves must not keep the board level (no stored plan to fall back on)."""
+    path, _, _ = SCENARIOS['L']
+    arc, corr, pose_corr = corridors_for(path, 0.02)
+    p0 = (corr[0, 1] + 0.0005, 0.15)     # every solve here took > 12 ms (review I1)
+    ctrl = MpcPathController.from_params(mpc_params)
+    ctrl.on_route(path, arc, corr, pose_corr, plan_id=1)
+    log = run_closed_loop(ctrl, BallSim.from_params(sim_params, pos0=p0), path, 2.0)
+    assert np.abs(log['cmd']).max() > 0.01
+    assert np.linalg.norm(log['pos'][-1] - np.array(p0)) > 0.02

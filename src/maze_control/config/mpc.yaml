@@ -39,7 +39,7 @@ maze_mpc_controller:
       solve_budget: 0.012         # a solve longer than this counts as failed [s]
       max_fallback: 5             # failed solves in a row before the board is levelled
       osqp:
-        max_iter: 4000
+        max_iter: 1000            # ~13 us/iteration here: about one solve_budget; 4000 took ~52 ms
         eps_abs: 1.0e-5
         eps_rel: 1.0e-5
         polish: true              # without it the rate constraint is off by ~1e-5

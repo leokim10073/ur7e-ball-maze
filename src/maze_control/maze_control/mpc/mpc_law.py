@@ -22,7 +22,9 @@ theta is not measured, so an open-loop observer runs the lag model on the
 commands sent, and the state is predicted ``delay`` ahead through the commands
 already in flight. When a solve fails or runs past ``solve_budget``, it plays
 the next step of the last good plan; after ``max_fallback`` failures in a row
-(or with no plan) it levels the board.
+(or with no plan) it levels the board, except that a plan which was solved but
+late is used rather than levelling (mode 'late'): it was computed for the
+current state, and levelling under a slow but solvable problem never recovers.
 """
 
 import collections
@@ -41,6 +43,11 @@ BIG = 1.0e3
 # smaller breaks (OSQP's accuracy, ~1e-5 when a corridor slack is active) are
 # projected back onto the limits.
 LIMIT_TOL = 1.0e-4
+
+# OSQP's status does not come out of opti.to_function (stats() is empty), so a
+# plan whose dynamics residual |X_0 - x0|, |X_{k+1} - Ad X_k - Bd U_k| exceeds
+# this is taken as unconverged (a max_iter exit). Converged plans: ~1e-5.
+RESID_TOL = 5.0e-4
 
 # rows of p and v in the stacked state
 P_ROWS, V_ROWS = [0, 3], [1, 4]
@@ -73,8 +80,8 @@ class CFTOC:
         self.dt = float(dt)
         self.N = N = int(horizon)
         self.max_tilt, self.max_rate = float(max_tilt), float(max_rate)
-        Ad2 = np.kron(np.eye(2), np.asarray(Ad, float))
-        Bd2 = np.kron(np.eye(2), np.asarray(Bd, float))
+        self._Ad2 = Ad2 = np.kron(np.eye(2), np.asarray(Ad, float))
+        self._Bd2 = Bd2 = np.kron(np.eye(2), np.asarray(Bd, float))
 
         opti = ca.Opti('conic')
         X, U, S = opti.variable(6, N + 1), opti.variable(2, N), opti.variable(2, N)
@@ -162,8 +169,11 @@ class CFTOC:
             return Plan(np.zeros((2, N)), np.zeros((6, N + 1)), np.zeros((2, N)),
                         False, t_solve)
         X, U, S = out
+        x0 = args[0]
+        resid = max(np.abs(X[:, 0] - x0).max(),
+                    np.abs(X[:, 1:] - self._Ad2 @ X[:, :-1] - self._Bd2 @ U).max())
         U, moved = self._project_limits(U, u_prev)
-        ok = ok and moved <= LIMIT_TOL
+        ok = ok and resid <= RESID_TOL and moved <= LIMIT_TOL
         if ok:
             self._guess = (X, U, S)
         return Plan(U, X, S, ok, t_solve)
@@ -257,6 +267,9 @@ class MPCController:
                 u_des = plan.U[:, 0]
             else:
                 u_des = self._fallback()
+                if self.mode == 'level' and plan.ok:
+                    self.last_plan, self.n_fail, self.mode = plan, 0, 'late'
+                    u_des = plan.U[:, 0]
         u_out = self._limit(u_des, dt)
         self._advance(u_out)
         return u_out.copy()
