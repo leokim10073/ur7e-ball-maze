@@ -39,7 +39,7 @@ The MPC's horizon reference moves along the path at one constant `v_ref`. In the
 
 ## Defaults
 
-Chosen by a sweep in `scripts/compare_controllers.py` (randomized runs, ±5 mm corridors): goal is time close to `v_ref = 0.15` with the in-corridor rate of `v_ref = 0.1`.
+Chosen by `scripts/compare/sweep_corner_speed.py` (randomized runs, ±5 mm corridors): goal is time close to `v_ref = 0.15` with the in-corridor rate of `v_ref = 0.1`.
 
 ## Tests
 

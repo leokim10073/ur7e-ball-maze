@@ -350,6 +350,8 @@ src/maze_control/
                          for the MuJoCo sim), ball_sim.yaml (offline sim plant)
   launch/                pid.launch.py, lqr.launch.py
   scripts/               plot_trajectories.py
+  scripts/compare/       compare_controllers.py (PID vs LQR vs MPC plots), sweep_corner_speed.py
+                         (the MPC reference-speed sweep); both write to results/ (git-ignored)
 ```
 
 ### Run (inside `maze-sim`)
@@ -417,9 +419,11 @@ Offline, with corridors 5 mm either side of the path and 20 runs per path with r
 ```bash
 cd src/maze_control && python3 -m pytest test
 python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
+python3 scripts/compare/compare_controllers.py --runs 50 --jobs 4   # plots to results/compare/
+python3 scripts/compare/sweep_corner_speed.py --runs 20 --jobs 4    # table behind mpc.yaml's speeds
 ```
 
-`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header). `test_mpc.py` covers the MPC: the CFTOC (limits, corridors, agreement with the LQR without constraints, solve time), the delay predictor, the tilt observer, the solver fallback, the horizon reference and corridor lookup, and closed loops on all paths, with corridors, noise and a longer delay. It needs casadi (in the container).
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header). `test_mpc.py` covers the MPC: the CFTOC (limits, corridors, agreement with the LQR without constraints, solve time), the delay predictor, the tilt observer, the solver fallback, the horizon reference and corridor lookup, the corner speed profile (straights, 90° and chamfered corners, U-turns, staircases, build time, invalid settings), and closed loops on all paths, with corridors, noise and a longer delay. It needs casadi (in the container).
 
 ## Arm control (tilt)
 
