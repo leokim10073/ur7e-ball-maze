@@ -526,3 +526,15 @@ def test_profile_build_is_fast(mpc_params):
     ctrl.on_path(pts)
     assert time.perf_counter() - t0 < 0.05
     assert ctrl.speed_profile[1].min() == pytest.approx(0.06, abs=1e-3)
+
+
+@pytest.mark.parametrize('key, value', [('v_turn', 0.0), ('v_turn', -0.05),
+                                        ('a_ref', 0.0), ('a_ref', -1.0),
+                                        ('corner_window', 0.0), ('corner_window', -0.01)])
+def test_profile_rejects_nonpositive_settings(mpc_params, key, value):
+    # v_turn 0 would stall the reference at a corner for good; a_ref and
+    # corner_window <= 0 would silently give a wrong profile
+    p = copy.deepcopy(mpc_params)
+    p['mpc'][key] = value
+    with pytest.raises(ValueError, match=key):
+        MpcPathController.from_params(p)

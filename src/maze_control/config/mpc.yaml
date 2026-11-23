@@ -40,9 +40,9 @@ maze_mpc_controller:
       # 15-40 % on L and U. Not tested with the profile above 70 ms dead time: re-check after the
       # robot's latency is measured (#7).
       v_ref: 0.2                  # reference speed along the path, on straights [m/s]
-      v_turn: 0.08                # reference speed at a turn of 90 deg or more; = v_ref: no slowing [m/s]
-      a_ref: 0.3                  # the reference speed changes at most this fast along the path [m/s^2]
-      corner_window: 0.02         # turn angle between the chords this far before and after [m]
+      v_turn: 0.08                # reference speed at a 90 deg turn, > 0; = v_ref: no slowing [m/s]
+      a_ref: 0.3                  # the reference speed changes at most this fast along the path, > 0 [m/s^2]
+      corner_window: 0.02         # turn angle between the chords 2w..w before and w..2w after, > 0 [m]
       slow_dist: 0.05             # the reference speed drops linearly to 0 over the last slow_dist [m]
       solve_budget: 0.012         # a solve longer than this counts as failed [s]
       max_fallback: 5             # failed solves in a row before the board is levelled

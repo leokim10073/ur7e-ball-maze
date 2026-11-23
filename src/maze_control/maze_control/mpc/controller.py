@@ -18,6 +18,10 @@ class MpcPathController(PidPathController):
 
     def __init__(self, tracker, law, v_ref, slow_dist, v_turn=None, a_ref=np.inf,
                  corner_window=0.02, **kw):
+        for name, val in (('v_turn', v_turn), ('a_ref', a_ref),
+                          ('corner_window', corner_window)):
+            if val is not None and not float(val) > 0.0:
+                raise ValueError(f'mpc.{name} must be > 0, got {val}')
         self.v_ref = float(v_ref)
         self.v_turn = self.v_ref if v_turn is None else min(float(v_turn), self.v_ref)
         self.a_ref = float(a_ref)
