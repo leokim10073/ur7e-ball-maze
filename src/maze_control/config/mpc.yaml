@@ -34,8 +34,11 @@ maze_mpc_controller:
       r_du: 0.0                   # smoothing of the command; 0 = off (the rate limit is a hard constraint)
       rho_lin: 10000.0            # corridor slack, linear (exact penalty) [1/m]
       rho_quad: 10000.0           # corridor slack, quadratic; 1e6 made the QP ill-conditioned (22 ms median)
-      # Speeds from an offline sweep (20 randomized runs per path, 5 mm corridors): 0.2 / 0.08 / 0.3
-      # never left the corridor on line, L, U; a_ref 0.5 or v_turn 0.12 did. Constant 0.15: 15-40 %.
+      # Speeds from an offline sweep (20 randomized runs per path, 5 mm corridors, dead time 40-70 ms):
+      # 0.2 / 0.08 / 0.3 never left the corridor on line, L, U, an L with a 1 cm chamfer and a 45 deg
+      # bend; so did v_turn 0.1, v_ref 0.25 and a_ref 0.5 alone; v_ref 0.3 did (75-95 %). Constant 0.15:
+      # 15-40 % on L and U. Not tested with the profile above 70 ms dead time: re-check after the
+      # robot's latency is measured (#7).
       v_ref: 0.2                  # reference speed along the path, on straights [m/s]
       v_turn: 0.08                # reference speed at a turn of 90 deg or more; = v_ref: no slowing [m/s]
       a_ref: 0.3                  # the reference speed changes at most this fast along the path [m/s^2]
