@@ -75,34 +75,47 @@ class MpcPathController(PidPathController):
 
     # -------------------------------------------------------------- reference
     def _build_profile(self):
-        """Reference speed over arc length: v_ref on straights, v_turn at a turn
-        of 90 deg or more (the angle between the chords corner_window before and
-        after each point, so a 5 mm staircase is not a corner), and at most a_ref
-        of speed change, so it brakes before a corner and speeds up after it."""
+        """Reference speed over arc length: v_ref on straights, v_turn at a 90 deg
+        turn, and at most a_ref of speed change, so it brakes before a corner and
+        speeds up after it.
+
+        The turn at s is the angle phi between the chords [s - 2w, s - w] and
+        [s + w, s + 2w] (w = corner_window): they skip the corner itself, so a
+        90 deg bend straightened into two 45 deg bends (a diagonal shorter than
+        2w) still reads as 90 deg, and a 5 mm staircase averages out. The cap
+        keeps the velocity change of the turn, 2 v sin(phi / 2), at that of
+        v_turn through 90 deg: v_cap = v_turn sqrt(2) / (2 sin(phi / 2))."""
         trk = self.tracker
         if not trk.has_path:
             return None
         L = trk.length
         n = max(int(np.ceil(L / self.PROFILE_DS)) + 1, 2)
         s = np.linspace(0.0, L, n)
-        v = np.full(n, self.v_ref)
         if self.v_turn >= self.v_ref or L == 0.0:
-            return s, v
+            return s, np.full(n, self.v_ref)
+
+        def at(q):
+            q = np.clip(q, 0.0, L)
+            return np.stack([np.interp(q, trk._s, trk.points[:, k]) for k in (0, 1)], 1)
+
         w = self.corner_window
-        for i, si in enumerate(s):
-            p = trk.point_at(si)
-            back = p - trk.point_at(si - w)
-            fwd = trk.point_at(si + w) - p
-            nb, nf = np.linalg.norm(back), np.linalg.norm(fwd)
-            if nb > 1e-9 and nf > 1e-9:
-                cos_phi = float(np.dot(back, fwd)) / (nb * nf)
-                v[i] = self.v_turn + (self.v_ref - self.v_turn) * max(cos_phi, 0.0)
+        back = at(s - w) - at(s - 2 * w)
+        fwd = at(s + 2 * w) - at(s + w)
+        nb, nf = np.linalg.norm(back, axis=1), np.linalg.norm(fwd, axis=1)
+        ok = (nb > 1e-9) & (nf > 1e-9)
+        cos_phi = np.ones(n)
+        cos_phi[ok] = np.einsum('ij,ij->i', back[ok], fwd[ok]) / (nb[ok] * nf[ok])
+        sin_half = np.sqrt(np.clip((1.0 - cos_phi) / 2.0, 0.0, 1.0))
+        with np.errstate(divide='ignore'):
+            v = np.minimum(self.v_ref, self.v_turn * np.sqrt(2.0) / (2.0 * sin_half))
         if np.isfinite(self.a_ref):
             dv2 = 2.0 * self.a_ref * (s[1] - s[0])
+            vl = v.tolist()
             for i in range(n - 2, -1, -1):           # brake before corners
-                v[i] = min(v[i], np.sqrt(v[i + 1] ** 2 + dv2))
+                vl[i] = min(vl[i], (vl[i + 1] ** 2 + dv2) ** 0.5)
             for i in range(1, n):                    # speed up after them
-                v[i] = min(v[i], np.sqrt(v[i - 1] ** 2 + dv2))
+                vl[i] = min(vl[i], (vl[i - 1] ** 2 + dv2) ** 0.5)
+            v = np.array(vl)
         return s, v
 
     def _speed(self, s):

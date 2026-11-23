@@ -451,7 +451,7 @@ def test_profile_slows_to_v_turn_at_corner(mpc_params):
                            SCENARIOS['L'][0])
     corner = 0.30
     assert np.interp(corner, s, v) == pytest.approx(v_turn, abs=1e-3)
-    bound = np.sqrt(v_turn ** 2 + 2 * a * np.abs(s - corner))
+    bound = np.sqrt(v_turn ** 2 + 2 * a * np.maximum(np.abs(s - corner) - 0.02, 0.0))
     assert np.all(v <= bound + 1e-6)          # brakes before, speeds up after, at a_ref
     assert np.interp(corner - 0.15, s, v) == pytest.approx(0.15)
     assert np.interp(corner + 0.15, s, v) == pytest.approx(0.15)
@@ -463,7 +463,8 @@ def test_profile_u_turn_bounded_by_both_corners(mpc_params):
                            SCENARIOS['U'][0])
     c1, c2 = 0.33, 0.48
     mid = (c1 + c2) / 2
-    expect = np.sqrt(v_turn ** 2 + 2 * a * (mid - c1))
+    w = 0.02                                  # v_turn holds within w of a corner
+    expect = np.sqrt(v_turn ** 2 + 2 * a * (mid - c1 - w))
     assert np.interp(mid, s, v) == pytest.approx(expect, abs=2e-3)
     assert np.all(np.abs(np.diff(v ** 2)) <= 2 * a * np.diff(s) + 1e-9)
 
@@ -504,3 +505,24 @@ def test_profile_degenerate_paths(mpc_params):
         assert np.isfinite(ctrl._speed(0.0))
     ctrl, _ = profile_on(p, np.zeros((0, 2)))
     assert ctrl.speed_profile is None
+
+
+def test_profile_chamfered_corner_slows_to_v_turn(mpc_params):
+    # a 90 deg bend straightened into two 45 deg bends joined by a 1 cm diagonal
+    d = 0.01 / np.sqrt(2)
+    path = [[-0.18, 0.15], [-0.18, -0.15 + d], [-0.18 + d, -0.15], [0.18, -0.15]]
+    _, (s, v) = profile_on(corner_params(mpc_params, v_turn=0.06), path)
+    assert v.min() == pytest.approx(0.06, abs=1e-3)
+
+
+def test_profile_build_is_fast(mpc_params):
+    # a 4 m route of 5 mm points with a bend every 10 cm, as the planner sends
+    legs = [np.array([0.1, 0.0]), np.array([0.0, 0.1])]
+    corners = np.cumsum([np.zeros(2)] + [legs[i % 2] for i in range(40)], axis=0)
+    pts = np.vstack([np.linspace(a, b, 20, endpoint=False)
+                     for a, b in zip(corners[:-1], corners[1:])] + [corners[-1:]])
+    ctrl = MpcPathController.from_params(corner_params(mpc_params))
+    t0 = time.perf_counter()
+    ctrl.on_path(pts)
+    assert time.perf_counter() - t0 < 0.05
+    assert ctrl.speed_profile[1].min() == pytest.approx(0.06, abs=1e-3)

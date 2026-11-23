@@ -29,8 +29,9 @@ The MPC's horizon reference moves along the path at one constant `v_ref`. In the
 ## Design (`mpc/controller.py`, `MpcPathController`)
 
 - On every path change, build `self._profile = (s_grid, v)` on a 1 mm arc grid:
-  - turn angle φ(s) = angle between chord `p(s) − p(s − w)` and chord `p(s + w) − p(s)` (`w = corner_window`, clamped to the path; a zero chord gives φ = 0);
-  - cap `v_cap = v_turn + (v_ref − v_turn) · max(cos φ, 0)`;
+  - turn angle φ(s) = angle between chord `p(s − w) − p(s − 2w)` and chord `p(s + 2w) − p(s + w)` (`w = corner_window`, clamped to the path; a zero chord gives φ = 0). The chords skip the corner itself, so a 90° bend straightened into two 45° bends with a diagonal shorter than 2w still reads as 90° (review I2: the first version, with chords meeting at s, read a 1 cm chamfer as 59° and left the corridor);
+  - cap `v_cap = min(v_ref, v_turn·√2 / (2 sin(φ/2)))`: the velocity change of a turn, 2v·sin(φ/2), is held at that of `v_turn` through 90°;
+  - computed with numpy over the whole grid (review I1: the per-point loop took 0.2–0.5 s for 1.5–4 m routes, inside the route callback that shares the thread with the 60 Hz timer);
   - backward pass `v[i] = min(v_cap[i], √(v[i+1]² + 2·a_ref·ds))`, then forward pass `v[i] = min(v[i], √(v[i−1]² + 2·a_ref·ds))`; both ends start from `v_cap`.
 - `_speed(s) = interp(s, profile) · clip((L − s)/slow_dist, 0, 1)`.
 - Off (`v_turn ≥ v_ref`): the profile is the constant `v_ref`.
