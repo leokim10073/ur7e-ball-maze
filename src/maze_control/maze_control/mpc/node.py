@@ -41,11 +41,18 @@ class MpcNode(PidNode):
                 f'{self.ctrl.tracker.length:.3f} m, {len(corr)} corridors')
 
     def on_timer(self):
+        if not self.context.ok():           # shutting down (Ctrl-C)
+            return
         super().on_timer()
         mode = self.ctrl.law.mode
         if mode != self._last_mode:
-            log = self.get_logger().warn if mode == 'fallback' else self.get_logger().info
-            log(f'mpc: {mode} (failed solves in a row: {self.ctrl.law.n_fail})')
+            text = f'mpc: {mode} (failed solves in a row: {self.ctrl.law.n_fail})'
+            # Two call sites: rclpy (Humble) raises ValueError when one call
+            # site logs with a different severity than before.
+            if mode == 'fallback':
+                self.get_logger().warn(text)
+            else:
+                self.get_logger().info(text)
             self._last_mode = mode
 
     def log_solve_time(self):

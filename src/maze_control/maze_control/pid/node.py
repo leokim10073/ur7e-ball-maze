@@ -81,6 +81,10 @@ class PidNode(Node):
                                    f'{self.ctrl.tracker.length:.3f} m')
 
     def on_timer(self):
+        # A timer can still fire while Ctrl-C shuts the context down; publishing
+        # then raises RCLError (publisher's context is invalid).
+        if not self.context.ok():
+            return
         tilt = self.ctrl.update(self.now_s())
         out = BoardTilt()
         out.header.stamp = self.get_clock().now().to_msg()

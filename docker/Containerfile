@@ -27,7 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # finds them and still runs on numpy 1.21. It shadows the apt cv2 for Python only (cv_bridge's
 # C++ side keeps the system OpenCV).
 # casadi: the MPC solver (maze_control/mpc); 3.6.7 runs on numpy 1.21 and ships the OSQP plugin.
+# "numpy<2" keeps Ubuntu's numpy 1.21: without it pip pulls numpy 2.x for casadi, and the
+# apt matplotlib (built on 1.21) then fails with "_ARRAY_API not found".
 RUN pip3 install --no-cache-dir \
+        "numpy<2" \
         mujoco==3.12.0 \
         opencv-contrib-python-headless==4.10.0.84 \
         coacd==1.0.14 \
