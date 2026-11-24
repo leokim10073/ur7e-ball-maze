@@ -112,9 +112,7 @@ Keep a bag of all of it (third terminal): `ros2 run maze_perception record.sh p6
    ```
    It writes `p6_spots.png`, a map of the five spots (board +y up, handle on the left), then asks for
    the ball pushed into each: the maze's four corners and the wall corner nearest the middle. Two
-   walls fix the ball's center to a fraction of a mm there. Pass: within 3 mm. Expect about 1.5 mm:
-   against a wall the finder leaves the wall's faces out and with them the ball's outermost
-   millimeter; on open floor it is within a fraction of a mm.
+   walls fix the ball's center to a fraction of a mm there. Pass: within 3 mm. In the sim it is under 1 mm, corners included.
 
 Write the numbers into #45, with the bag's name.
 
