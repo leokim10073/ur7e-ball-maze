@@ -14,14 +14,14 @@ robot:
   initial_joints: [-2.7498, -1.6799, -2.2485, 0.7868, 1.1837, -1.5708]   # rad; holds the board level with its handle at (0.60, 0, 0.41); replaced by the real home pose
 
 gripper:
-  closed_position: 0.8               # fraction of full close at which fingers meet the handle
+  closed_position: 0.76              # fraction of full close at which the fingers meet the 12 mm handle (Hand-E: 50 mm stroke)
   force_limit: 100.0                 # N
 
 board:
   mesh_dir: package://maze_sim_description/meshes/board
   units: mm                          # units of the exported STL files
   grasp_offset:                      # handle frame relative to tool0
-    xyz: [0.0, 0.0, 0.15]
+    xyz: [0.0, 0.0, 0.137]             # Hand-E: finger mounting face 110 mm out, tab tip 2 mm past it, handle center 25 mm further
     rpy: [3.141593, -1.570796, 0.0]   # board x along the approach (tool0 z), board z along the finger closing axis (tool0 x)
   mass: 0.8                          # kg
   surface_friction: [1.0, 0.005, 0.0001]   # sliding, torsional, rolling

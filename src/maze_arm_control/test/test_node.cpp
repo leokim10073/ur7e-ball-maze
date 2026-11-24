@@ -83,7 +83,7 @@ public:
         sensor_msgs::msg::JointState js;
         js.header.stamp = now();
         js.name = {"wrist_3_joint", "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint",
-          "wrist_2_joint", "gripper_right_driver_joint"};  // any order, an extra joint
+          "wrist_2_joint", "gripper_left_finger_joint"};  // any order, an extra joint
         js.position = {q[5], q[0], q[1], q[2], q[3], q[4], 0.5};
         pub_->publish(js);
       });

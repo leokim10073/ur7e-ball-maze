@@ -54,7 +54,7 @@ distrobox rm -f maze-sim && ./docker/build.sh && distrobox assemble create --fil
 
 ## Simulation
 
-A MuJoCo scene of the lab UR7e holding the maze board with its Robotiq 2F-85, plus an overhead camera, behind the same ROS 2 interface as the real robot. Lab code switches between sim and robot by changing the launch file, not the code. The design is in [`docs/superpowers/specs/2026-11-08-simulation-s1-design.md`](docs/superpowers/specs/2026-11-08-simulation-s1-design.md).
+A MuJoCo scene of the lab UR7e holding the maze board with its Robotiq Hand-E (V-groove fingertips), plus an overhead camera, behind the same ROS 2 interface as the real robot. Lab code switches between sim and robot by changing the launch file, not the code. The design is in [`docs/superpowers/specs/2026-11-08-simulation-s1-design.md`](docs/superpowers/specs/2026-11-08-simulation-s1-design.md).
 
 ![The UR7e holding the L1 maze board at the start pose](docs/media/sim.png)
 
@@ -187,7 +187,7 @@ The tool replaces every mesh and marker texture in `--out-dir` and writes `board
 | `camera.position`, `look_at`, `up` | Camera pose in `world` (m); `up` is the world direction shown as image up, must not be parallel to the view direction |
 | `camera.resolution`, `fps`, `hfov_deg` | Image size, rate and horizontal field of view |
 | `robot.ur_type`, `initial_joints` | UR model and start/reset joint angles (rad); the default holds the board level |
-| `gripper.closed_position`, `force_limit` | Finger closure at the handle (0–1) and grip force (N) |
+| `gripper.closed_position`, `force_limit` | Finger closure at the handle (0–1 of the Hand-E's 25 mm travel per finger) and grip force (N; Hand-E 20–185) |
 | `board.mesh_dir`, `units` | Converted board meshes (`package://`, absolute, or relative to `sim.yaml`) and the STL units |
 | `board.grasp_offset` | Handle frame relative to `tool0` (`xyz` m, `rpy` rad) |
 | `board.mass`, `surface_friction`, `goal_hole` | Board mass (kg), felt friction (sliding, torsional, rolling), goal hole in the board frame |

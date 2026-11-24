@@ -19,7 +19,7 @@ def test_compiles_with_names(model, cfg):
         assert model.actuator(j).trntype == mujoco.mjtTrn.mjTRN_JOINT
         assert model.actuator(j).gaintype == mujoco.mjtGain.mjGAIN_FIXED  # motor: torque in, PIDs in ros2_control
         assert model.actuator(j).biastype == mujoco.mjtBias.mjBIAS_NONE
-    model.joint(GRIPPER_ACTUATOR)  # tendon actuator named after its joint (plugin requirement)
+    model.joint(GRIPPER_ACTUATOR)  # actuator named after its joint (plugin requirement)
     model.actuator(GRIPPER_ACTUATOR)
     model.camera("overhead_camera"); model.body("board"); model.body("ball"); model.site("tool0")
     assert model.joint("ball_free").type == mujoco.mjtJoint.mjJNT_FREE
@@ -93,7 +93,7 @@ def test_arm_and_gripper_gravity_compensated(model):
     # the UR controller cancels the weight of the arm and its tool; ros2_control's PIDs have no gravity term
     for j in UR_JOINTS:
         assert model.jnt_actgravcomp[model.joint(j).id]  # counts against the joint torque limit
-    for b in ("shoulder_link", "wrist_3_link", "gripper_base", "gripper_left_pad"):
+    for b in ("shoulder_link", "wrist_3_link", "gripper_base_mount", "gripper_left_finger", "gripper_right_finger"):
         assert model.body_gravcomp[model.body(b).id] == 1.0
     for b in ("board", "ball"):
         assert model.body_gravcomp[model.body(b).id] == 0.0

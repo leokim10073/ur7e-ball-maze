@@ -87,5 +87,5 @@ forward_position_controller:
 gripper_controller:
   ros__parameters:
     joints:
-      - gripper_right_driver_joint
+      - gripper_left_finger_joint
     interface_name: position

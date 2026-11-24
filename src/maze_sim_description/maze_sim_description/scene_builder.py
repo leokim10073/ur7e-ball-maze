@@ -1,11 +1,12 @@
 """Compose the MuJoCo scene: Menagerie UR5e, with the UR7e link lengths from ur_description, and a
-Robotiq 2F-85 on the flange, the maze board held in the gripper, the ball, the overhead camera,
-and keyframe "start".
+Robotiq Hand-E with V-groove fingertips on the flange, the maze board held in the gripper, the ball,
+the overhead camera, and keyframe "start".
 
 The arm's position servos are replaced by torque (motor) actuators named after the joints, so
-mujoco_ros2_control's PIDs can serve both position and velocity command interfaces. The gripper
-actuator is a position servo on the finger tendon, named after the driver joint as the plugin
-requires for tendon actuators. The grasp is contact only.
+mujoco_ros2_control's PIDs can serve both position and velocity command interfaces. The Hand-E's
+two fingers slide on prismatic joints: the left one carries the gripper actuator (a force-limited
+position servo named after its joint, in metres of travel from fully open), and the right one
+follows it through a joint equality, as the real gripper's single motor drives both.
 """
 
 import argparse
@@ -29,13 +30,21 @@ UR_JOINTS = (
 )
 UR_TORQUE_LIMITS = (150.0, 150.0, 150.0, 28.0, 28.0, 28.0)  # N m, UR7e/UR5e datasheet
 GRIPPER_PREFIX = "gripper_"
-GRIPPER_ACTUATOR = GRIPPER_PREFIX + "right_driver_joint"
+GRIPPER_ACTUATOR = GRIPPER_PREFIX + "left_finger_joint"
+GRIPPER_FOLLOWER = GRIPPER_PREFIX + "right_finger_joint"
 BOARD_PREFIX = "maze_"
-GRIPPER_KP = 100.0
-GRIPPER_KV = 10.0
-# Tendon force (N m on the driver joints) per newton of finger normal force on the handle;
-# checked by test_physics.test_finger_force_matches_limit.
-GRIPPER_TENDON_PER_NEWTON = 0.114
+# Robotiq Hand-E, from its STEP files (maze_CAD/gripper/robotiq_hande) and Robotiq's spec. In the
+# tool0 frame: z along the approach, x along the fingers' closing axis.
+HANDE_STROKE = 0.025  # m of travel per finger: grip faces 50 mm apart fully open, touching fully closed
+HANDE_MOUNT_Z = 0.110  # m from the flange to the fingers' mounting face: 11 mm I/O coupling + 99 mm gripper
+HANDE_STEP_MOUNT_Y = 0.0146  # m: that face in the base STEP's frame, whose +y is the approach axis
+HANDE_BODY_TOP_Z = HANDE_MOUNT_Z - HANDE_STEP_MOUNT_Y + 0.0072  # top of the housing (STEP y = 7.2 mm)
+HANDE_HALF_WIDTH = 0.0375  # 75 x 75 mm housing
+HANDE_MASS = 0.98  # kg: 0.86 gripper + 0.12 coupling (Robotiq); the fingertips add 2 x 0.038
+HANDE_FINGER_MASS = 0.038
+HANDE_FINGER_ARMATURE = 1.0  # kg: the motor and lead screw seen at the finger; keeps the stiff servo stable
+GRIPPER_KP = 1e5  # N/m: commanded fully closed, a finger stopped by the 12 mm handle is 6 mm short,
+GRIPPER_KV = 600.0  # so the servo saturates at its force limit
 # MuJoCo's soft friction lets a board held only by contacts creep in the grasp (~0.01°/s under
 # arm motion, whatever the friction or finger force). While the gripper is closed on the board,
 # GraspWeldPlugin (maze_sim_nodes) switches this weld on; opening switches it off, so a release
@@ -127,6 +136,77 @@ def grasp_weld_engaged(model, data, engaged):
     return bool(np.linalg.norm(p_err) < pos_tol and cos > np.cos(np.radians(ang_tol_deg)))
 
 
+def _hande_mesh_dir():
+    here = Path(__file__).resolve().parents[1] / "meshes" / "hande"
+    if here.is_dir():
+        return here
+    from ament_index_python.packages import get_package_share_directory
+
+    return Path(get_package_share_directory("maze_sim_description")) / "meshes" / "hande"
+
+
+def _quat(R):
+    q = np.zeros(4)
+    mujoco.mju_mat2Quat(q, np.asarray(R, float).ravel())
+    return q
+
+
+def _hande_spec(cfg):
+    """Robotiq Hand-E with V-groove fingertips, body "base_mount" at the flange (tool0 frame).
+
+    Visuals are the STEP meshes (maze_CAD/scripts/export_hande.py); collisions are boxes: the
+    housing, and per finger its 6 mm blade (the flat 40 mm grip face; the V-groove is only visual)
+    and its mounting block. The finger carriers stay where the STEP has them, as part of the housing
+    visual: in the sim the fingers only ever sit near closed on the handle.
+    """
+    mesh_dir = _hande_mesh_dir()
+    s = mujoco.MjSpec()
+    s.compiler.degree = False
+    s.add_mesh(name="hande_base", file=str(mesh_dir / "hande_base.stl"))
+    s.add_mesh(name="hande_finger", file=str(mesh_dir / "hande_finger_vgroove.stl"))
+    base = s.worldbody.add_body(name="base_mount", gravcomp=1.0)
+    visual = dict(contype=0, conaffinity=0, group=2, mass=0.0)
+    # coupling: a plain cylinder between the flange and the housing
+    base.add_geom(name="coupling", type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+                  size=[HANDE_HALF_WIDTH, 0.5 * (HANDE_MOUNT_Z - HANDE_STEP_MOUNT_Y - 0.0861), 0],
+                  pos=[0, 0, 0.5 * (HANDE_MOUNT_Z - HANDE_STEP_MOUNT_Y - 0.0861)], rgba=[0.2, 0.2, 0.2, 1], **visual)
+    # base STEP frame -> tool0: STEP x -> x (closing axis), STEP y -> z (approach), STEP z -> -y
+    base.add_geom(name="housing_visual", type=mujoco.mjtGeom.mjGEOM_MESH, meshname="hande_base",
+                  pos=[0, 0, HANDE_MOUNT_Z - HANDE_STEP_MOUNT_Y],
+                  quat=_quat([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), rgba=[0.15, 0.15, 0.15, 1], **visual)
+    base.add_geom(name="housing", type=mujoco.mjtGeom.mjGEOM_BOX,
+                  size=[HANDE_HALF_WIDTH, HANDE_HALF_WIDTH, 0.5 * HANDE_BODY_TOP_Z],
+                  pos=[0, 0, 0.5 * HANDE_BODY_TOP_Z], mass=HANDE_MASS, group=3)
+    # fingertip STEP frame -> finger body: STEP x (width) -> y, STEP y (length) -> z, STEP z (out of
+    # the grip face) -> +x for the left finger; the right one is that turned by pi about z
+    R_left = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])
+    R_right = np.diag([-1, -1, 1]) @ R_left
+    pad = dict(type=mujoco.mjtGeom.mjGEOM_BOX, friction=cfg.board.surface_friction, priority=1,
+               solimp=[0.95, 0.99, 0.001, 0.5, 2], solref=[0.004, 1], group=3)  # Menagerie 2F-85 pads' contact
+    for side, R, x in (("left", R_left, HANDE_STROKE), ("right", R_right, -HANDE_STROKE)):
+        finger = base.add_body(name=f"{side}_finger", pos=[x, 0, HANDE_MOUNT_Z], quat=_quat(R), gravcomp=1.0)
+        finger.add_joint(name=f"{side}_finger_joint", type=mujoco.mjtJoint.mjJNT_SLIDE, axis=[0, 0, -1],
+                         range=[0, HANDE_STROKE], armature=HANDE_FINGER_ARMATURE)
+        finger.add_geom(name=f"{side}_finger_visual", type=mujoco.mjtGeom.mjGEOM_MESH, meshname="hande_finger",
+                        rgba=[0.7, 0.7, 0.72, 1], **visual)
+        # blade: the whole 21 x 40 mm grip face at STEP z = 0, 6 mm thick
+        finger.add_geom(name=f"{side}_pad", size=[0.0105, 0.020, 0.003], pos=[0, 0.020, 0.003],
+                        mass=HANDE_FINGER_MASS, **pad)
+        finger.add_geom(name=f"{side}_block", type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.0105, 0.0065, 0.0046],
+                        pos=[0, 0.0065, 0.0106], mass=0.0, group=3)
+    act = s.add_actuator(name="left_finger_joint", target="left_finger_joint", trntype=mujoco.mjtTrn.mjTRN_JOINT)
+    act.set_to_position(kp=GRIPPER_KP, kv=GRIPPER_KV)
+    act.ctrllimited = act.forcelimited = mujoco.mjtLimited.mjLIMITED_TRUE
+    act.ctrlrange = [0.0, HANDE_STROKE]
+    # one motor drives both fingers: through the coupling, the actuator's force on the left finger's
+    # joint splits evenly between the two jaws, so twice the grip force gives grip force per jaw
+    act.forcerange = [-2 * cfg.gripper.force_limit, 2 * cfg.gripper.force_limit]
+    s.add_equality(name="finger_coupling", type=mujoco.mjtEq.mjEQ_JOINT, objtype=mujoco.mjtObj.mjOBJ_JOINT,
+                   name1="right_finger_joint", name2="left_finger_joint", data=[0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                   solref=[2 * cfg.physics.timestep, 1.0])  # stiffest stable: the default lets the fingers differ ~1 mm
+    return s
+
+
 def _compose(cfg, board):
     menagerie = _menagerie_dir()
     spec = mujoco.MjSpec.from_file(str(menagerie / "universal_robots_ur5e" / "ur5e.xml"))
@@ -135,7 +215,7 @@ def _compose(cfg, board):
     spec.option.timestep = cfg.physics.timestep
     spec.option.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
     spec.option.noslip_iterations = cfg.physics.noslip_iterations
-    spec.option.impratio = 10.0  # the 2F-85 model's value; set before attaching so the options agree
+    spec.option.impratio = 10.0  # as Menagerie's 2F-85, which the grasp was tuned with
     spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     for key in list(spec.keys):
         spec.delete(key)
@@ -158,22 +238,7 @@ def _compose(cfg, board):
     flange = spec.site("attachment_site")
     spec.body("wrist_3_link").add_site(name="tool0", pos=flange.pos, quat=flange.quat)
 
-    gripper = mujoco.MjSpec.from_file(str(menagerie / "robotiq_2f85" / "2f85.xml"))
-    _absolute_meshes(gripper, menagerie / "robotiq_2f85" / "assets")
-    for act in list(gripper.actuators):
-        gripper.delete(act)
-    act = gripper.add_actuator(name="right_driver_joint", target="split", trntype=mujoco.mjtTrn.mjTRN_TENDON)
-    act.set_to_position(kp=GRIPPER_KP, kv=GRIPPER_KV)
-    act.ctrllimited = act.forcelimited = mujoco.mjtLimited.mjLIMITED_TRUE
-    act.ctrlrange = [0.0, 0.8]
-    f = cfg.gripper.force_limit * GRIPPER_TENDON_PER_NEWTON
-    act.forcerange = [-f, f]
-    for body in gripper.bodies:
-        body.gravcomp = 1.0
-    for geom in gripper.geoms:
-        if "pad" in geom.name:
-            geom.friction = cfg.board.surface_friction  # pads keep priority 1 and their stiff solref
-    flange.attach_body(gripper.body("base_mount"), GRIPPER_PREFIX, "")
+    flange.attach_body(_hande_spec(cfg).body("base_mount"), GRIPPER_PREFIX, "")
 
     board_spec = mujoco.MjSpec.from_string(
         "<mujoco>" + board_mjcf_fragment(board, cfg.board.mass, cfg.board.surface_friction) + "</mujoco>"
@@ -258,8 +323,8 @@ def _grasp_and_settle(model, cfg, handle, p_h, R_h):
     b_adr, b_dof = model.joint("board_free").qposadr[0], model.joint("board_free").dofadr[0]
     ball_adr, ball_dof = model.joint("ball_free").qposadr[0], model.joint("ball_free").dofadr[0]
     lo, hi = model.actuator(GRIPPER_ACTUATOR).ctrlrange
-    for side in ("right", "left"):
-        data.joint(f"{GRIPPER_PREFIX}{side}_driver_joint").qpos = lo + cfg.gripper.closed_position * (hi - lo)
+    for joint in (GRIPPER_ACTUATOR, GRIPPER_FOLLOWER):
+        data.joint(joint).qpos = lo + cfg.gripper.closed_position * (hi - lo)
     board_q = np.concatenate([p_h - R_h @ handle, matrix_to_quat(R_h)])
     data.ctrl[model.actuator(GRIPPER_ACTUATOR).id] = gripper_command(model, closed=True)
 

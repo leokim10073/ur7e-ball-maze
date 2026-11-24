@@ -39,7 +39,7 @@ from maze_sim_description.camera_math import look_at_quaternion
 from maze_sim_description.config import load_sim_config
 
 ARM_CONTROLLERS = ("scaled_joint_trajectory_controller", "forward_velocity_controller", "forward_position_controller")
-GRIPPER_CLOSED = 0.8  # ctrlrange max of the finger actuator: close with the force limit
+GRIPPER_CLOSED = 0.025  # m, ctrlrange max of the finger actuator (Hand-E fully closed): close with the force limit
 STARTUP_STATES = {
     "joint_state_broadcaster": "active",
     "scaled_joint_trajectory_controller": "active",
