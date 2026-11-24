@@ -1,0 +1,75 @@
+# MPC ball controller (C5, docs/superpowers/specs/2026-11-22-mpc-design.md).
+# Every weight, limit, model value and topic lives here.
+# Board frame maze_board (docs/interfaces.md): origin at the plate centre, z up,
+# handle on the -x edge. SI units: m, m/s, rad, rad/s, s.
+maze_mpc_controller:
+  ros__parameters:
+    rate_hz: 60.0                 # control period dt = 1/rate_hz; the model is discretized at it
+
+    topics:
+      state: /ball/state          # maze_interfaces/BallState (contract 2)
+      route: /maze/route          # maze_interfaces/PlannedRoute, maze_board (contract 3): path + corridors
+      tilt_cmd: /board/tilt_cmd   # maze_interfaces/BoardTilt (contract 4)
+    frame_id: maze_board
+
+    # Prediction model per axis (tilt_x and tilt_y alike), the LQR's (config/lqr.yaml):
+    #   p' = v,  v' = (5/7) g theta - c v,  theta' = (u(t - delay) - theta) / tau
+    # The controller's beliefs about the plant; the offline sim's true plant is
+    # config/ball_sim.yaml, so tests also cover a model mismatch. Same default as
+    # lqr.yaml until the robot's latency is measured.
+    model:
+      g: 9.81                     # [m/s^2]
+      c: 0.3                      # viscous rolling loss [1/s]
+      tau: 0.08                   # arm tilt lag [s]
+      delay: 0.05                 # camera + filter + arm dead time [s]; 0 turns the predictor off
+
+    # CFTOC (solved every period, k = 0 .. horizon-1):
+    #   q_pos |p - R|^2 + q_vel |v - V|^2 + r (u - u_ss)^2 + r_du (u - u_prev)^2 + rho_lin S + rho_quad S^2
+    # R, V: reference along the path at v_ref; S: how far the predicted ball is outside its corridor.
+    mpc:
+      horizon: 30                 # N steps (0.5 s at 60 Hz)
+      q_pos: 2500.0               # (1 / 0.02 m)^2, as the LQR
+      q_vel: 100.0                # (1 / 0.1 m/s)^2, on the velocity error to V
+      r: 156.0                    # (1 / 0.08 rad)^2, as the LQR
+      r_du: 0.0                   # smoothing of the command; 0 = off (the rate limit is a hard constraint)
+      # Terminal cost: with lqr (and input_ref steady, so P is the cost-to-go of the
+      # tracking error) the unconstrained CFTOC is the LQR at any horizon. Offline
+      # (scripts/compare, N = 30) it changed nothing: 100 % on line / L / U either way.
+      input_ref: steady           # u_ss: zero, or steady = the tilt that holds the reference speed V
+      terminal_cost: lqr          # none, or lqr = (x_N - x_ref)' P (x_N - x_ref), P the LQR's Riccati solution
+      rho_lin: 10000.0            # corridor slack, linear (exact penalty) [1/m]
+      rho_quad: 10000.0           # corridor slack, quadratic; 1e6 made the QP ill-conditioned (22 ms median)
+      # Speeds from scripts/compare/sweep_corner_speed.py (20 randomized runs per path, 5 mm corridors, dead time 40-70 ms):
+      # 0.2 / 0.08 / 0.3 never left the corridor on line, L, U, an L with a 1 cm chamfer and a 45 deg
+      # bend; so did v_turn 0.1, v_ref 0.25 and a_ref 0.5 alone; v_ref 0.3 did (75-95 %). Constant 0.15:
+      # 15-40 % on L and U. Not tested with the profile above 70 ms dead time: re-check after the
+      # robot's latency is measured (#7).
+      v_ref: 0.2                  # reference speed along the path, on straights [m/s]
+      v_turn: 0.08                # reference speed at a 90 deg turn, > 0; = v_ref: no slowing [m/s]
+      a_ref: 0.3                  # the reference speed changes at most this fast along the path, > 0 [m/s^2]
+      corner_window: 0.02         # turn angle between the chords 2w..w before and w..2w after, > 0 [m]
+      slow_dist: 0.05             # the reference speed drops linearly to 0 over the last slow_dist [m]
+      solve_budget: 0.012         # a solve longer than this counts as failed [s]
+      max_fallback: 5             # failed solves in a row before the board is levelled
+      osqp:
+        max_iter: 1000            # ~13 us/iteration here: about one solve_budget; 4000 took ~52 ms
+        eps_abs: 1.0e-5
+        eps_rel: 1.0e-5
+        polish: true              # without it the rate constraint is off by ~1e-5
+
+    # Same as the PID: below arm control's hard limits (contract 4: 0.087 rad, 0.5 rad/s).
+    limits:
+      max_tilt: 0.08              # per axis [rad] (4.6 deg)
+      max_rate: 0.3               # per axis [rad/s] (17 deg/s)
+
+    # The MPC uses the tracker for its progress along the path only (projection window,
+    # goal_tol); lookahead is unused.
+    tracker:
+      lookahead: 0.05             # L [m]
+      goal_tol: 0.02              # within this of the goal: stop advancing [m]
+      search_ahead: 0.15          # projection window ahead of progress [m]
+      search_back: 0.02           # projection window behind progress [m]
+
+    watchdog:
+      state_timeout: 0.2          # contract 2's tracking_timeout: level the board, resume when states return [s]
+      abort_timeout: 2.0          # contract 2's tracking_abort: lost this long during a run -> stop it [s]

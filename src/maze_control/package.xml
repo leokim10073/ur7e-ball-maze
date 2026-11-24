@@ -15,6 +15,7 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <!-- casadi (MPC): pip, pinned in docker/Containerfile; no rosdep key -->
 
   <test_depend>python3-pytest</test_depend>
 

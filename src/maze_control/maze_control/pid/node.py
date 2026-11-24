@@ -50,10 +50,14 @@ class PidNode(Node):
 
         self.create_subscription(BallState, topics['state'], self.on_state,
                                  STATE_QOS)
-        self.create_subscription(Path, topics['path'], self.on_path, PATH_QOS)
+        self._subscribe_path(topics)
         self.pub = self.create_publisher(BoardTilt, topics['tilt_cmd'], TILT_QOS)
         self.create_timer(1.0 / params['rate_hz'], self.on_timer)
         self._last_status = None
+
+    def _subscribe_path(self, topics):
+        """The path input; controllers that read the full route override it."""
+        self.create_subscription(Path, topics['path'], self.on_path, PATH_QOS)
 
     def now_s(self):
         return self.get_clock().now().nanoseconds * 1e-9
@@ -77,6 +81,10 @@ class PidNode(Node):
                                    f'{self.ctrl.tracker.length:.3f} m')
 
     def on_timer(self):
+        # A timer can still fire while Ctrl-C shuts the context down; publishing
+        # then raises RCLError (publisher's context is invalid).
+        if not self.context.ok():
+            return
         tilt = self.ctrl.update(self.now_s())
         out = BoardTilt()
         out.header.stamp = self.get_clock().now().to_msg()

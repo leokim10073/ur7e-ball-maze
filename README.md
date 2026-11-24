@@ -358,6 +358,8 @@ src/maze_control/
                          for the MuJoCo sim), ball_sim.yaml (offline sim plant)
   launch/                pid.launch.py, lqr.launch.py
   scripts/               plot_trajectories.py
+  scripts/compare/       compare_controllers.py (PID vs LQR vs MPC plots), sweep_corner_speed.py
+                         (the MPC reference-speed sweep); both write to results/ (git-ignored)
 ```
 
 ### Run (inside `maze-sim`)
@@ -408,14 +410,28 @@ Two configs, same keys:
 
 Why 3 cm in the sim: with a 5 cm look-ahead the target point lies past the wall tip at a U-turn; after a replan from next to the tip the LQR pulled the ball straight into it and the ball stuck there. The predictor matters most with a long delay: at 150 ms of dead time `lqr.yaml` still tracks the L path when `model.delay` matches, and goes unstable with the predictor off. The LQR does not know the tilt limit, so heavier weights make it oscillate on large errors; that is what MPC adds.
 
+### MPC
+
+```bash
+ros2 launch maze_control mpc.launch.py use_sim_time:=false   # true in the MuJoCo sim
+```
+
+`mpc_node` has the same state input, tilt output, watchdog and stop rules as `pid_node` and `lqr_node` (it reuses `PidPathController`), but reads the planner's full route on `/maze/route` (`PlannedRoute`, [contract 3](docs/interfaces.md)), because it needs the corridors. Run one ball controller at a time. Design: [`docs/superpowers/specs/2026-11-22-mpc-design.md`](docs/superpowers/specs/2026-11-22-mpc-design.md).
+
+Every period it solves a constrained finite-time optimal control problem (CFTOC) over `horizon` steps (30, 0.5 s), on the LQR's model of both axes. The cost penalises the distance to a reference moving along the path, the velocity error, and the tilt beyond the one that holds the reference speed against rolling loss; the state at the end of the horizon is weighted by the LQR's Riccati matrix P (`terminal_cost: lqr`), so without active constraints the MPC is the LQR at any horizon. The reference moves at `v_ref` on straights and slows to `v_turn` at a 90° turn (less for sharper turns, more for gentler ones: the turn's velocity change is held at that of `v_turn` through 90°). The turn is the angle between the path's chords from 2 to 1 `corner_window` before and from 1 to 2 after, so a 5 mm staircase is not a corner and a 90° bend straightened into two 45° bends still is. Between corners the reference changes speed at most at `a_ref`, so it brakes before a corner and speeds up after it; over the last `slow_dist` it slows linearly to rest (steeper than `a_ref`). Design: [`docs/superpowers/specs/2026-11-23-mpc-corner-speed-design.md`](docs/superpowers/specs/2026-11-23-mpc-corner-speed-design.md). The tilt and tilt-rate limits are hard constraints, and the predicted ball centre must stay in the corridor of its reference point: a soft constraint, with a slack that is heavily penalised so the problem stays solvable when noise puts the ball just outside. The problem is built once with CasADi (`Opti`, OSQP backend, `casadi==3.6.7` from the Containerfile) and warm-started from the previous plan. Like the LQR, it estimates the tilt from the commands sent and predicts the state past the dead time. When a solve fails (not converged: OSQP stops at `max_iter`, about 12 ms) or takes longer than `solve_budget` (12 ms), it plays the next step of the last good plan; after `max_fallback` (5) failures in a row, or with no plan yet, it levels the board, unless the late solve did converge: then it uses that plan, since it was computed for the current state. All values are in [`config/mpc.yaml`](src/maze_control/config/mpc.yaml).
+
+Offline, with corridors 5 mm either side of the path and 20 runs per path with randomized friction, lag, dead time, noise and start, the MPC (`v_ref` 0.2, `v_turn` 0.08, `a_ref` 0.3 m/s²) never left them on the straight, L and U paths, an L with a 1 cm chamfer and a 45° bend, and reached the goal in a median 2.6 s, 4.3 s and 5.6 s on the first three. A constant reference speed is slower or unsafe: 0.1 m/s takes 4.7 s, 6.9 s and 8.4 s; 0.15 m/s takes 3.3 s, 4.8 s and 6.0 s but stays inside in only 15–40 % of the L and U runs. The LQR leaves the corridors by 3.9 mm (L) and 3.7 mm (U) with nominal parameters. With `v_ref` 0.3 the MPC starts to leave the corridor (75–95 % of runs inside on the bends). Dead times above 70 ms were not tested with these speeds. A solve takes about 2 ms. With a 1-point route whose only corridor does not hold the ball, the MPC bangs around the corridor's edge. That does not happen with the planner, whose routes start at the ball and are replanned when it leaves its corridor.
+
 ### Tests (no ROS needed)
 
 ```bash
 cd src/maze_control && python3 -m pytest test
 python3 scripts/plot_trajectories.py   # rewrites docs/media/pid_trajectories.png
+python3 scripts/compare/compare_controllers.py --runs 50 --jobs 4   # plots to results/compare/
+python3 scripts/compare/sweep_corner_speed.py --runs 20 --jobs 4    # table behind mpc.yaml's speeds
 ```
 
-`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header).
+`test_pid_closed_loop.py` covers a single target (and that a flipped sign fails), straight, L and U paths. `test_pid_limits_watchdog.py` covers the tilt and rate limits, the timeout and the stopped run. `test_path_tracker.py` covers the shared tracker. `test_lqr.py` covers the LQR: the matrix exponential, the Riccati solution and a stable closed loop, the same paths and limits as the PID, the delay predictor, the tilt observer, the watchdog, and `lqr_sim.yaml` (tracks on the fast sim arm; diverges on a slow one, which pins the warning in its header). `test_mpc.py` covers the MPC: the CFTOC (limits, corridors, agreement with the LQR without constraints, solve time), the delay predictor, the tilt observer, the solver fallback, the horizon reference and corridor lookup, the corner speed profile (straights, 90° and chamfered corners, U-turns, staircases, build time, invalid settings), and closed loops on all paths, with corridors, noise and a longer delay. It needs casadi (in the container).
 
 ## Arm control (tilt)
 

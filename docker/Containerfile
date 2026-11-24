@@ -26,14 +26,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # OpenCV: Ubuntu's python3-opencv is 4.5, whose ArUco detector misses the board's markers; 4.10
 # finds them and still runs on numpy 1.21. It shadows the apt cv2 for Python only (cv_bridge's
 # C++ side keeps the system OpenCV).
+# casadi: the MPC solver (maze_control/mpc); 3.6.7 runs on numpy 1.21 and ships the OSQP plugin.
+# "numpy<2" keeps Ubuntu's numpy 1.21: without it pip pulls numpy 2.x for casadi, and the
+# apt matplotlib (built on 1.21) then fails with "_ARRAY_API not found".
 RUN pip3 install --no-cache-dir \
+        "numpy<2" \
         mujoco==3.12.0 \
         opencv-contrib-python-headless==4.10.0.84 \
         coacd==1.0.14 \
         trimesh==4.5.3 \
         rtree==1.3.0 \
         shapely==2.0.6 \
-        mapbox_earcut==1.0.2
+        mapbox_earcut==1.0.2 \
+        casadi==3.6.7
 
 # Fail here, not in a confusing test later, if apt moved the plugin or its MuJoCo away from the
 # versions the sim was tested with (apt versions cannot be pinned: old builds leave the repo).
