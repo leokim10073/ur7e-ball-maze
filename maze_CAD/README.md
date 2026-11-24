@@ -61,7 +61,7 @@ Frame: origin at the center of the 300×300 plate, **z = 0 on the maze floor** (
 |---|---|
 | `base.stl` | Plate and the four ArUco pads, with the start ring (0.6 mm), any trap holes, and a through hole for the goal |
 | `handle.stl` | The grip tab outside the plate; bottom flush with the base bottom, as printed |
-| `wall_<k>.stl` | One straight box per wall, outer frame included. **The last one is the goal pocket's floor**, a Ø30 × 3 mm disk under the goal hole. `parts_report.json` → `wall_names` says which is which |
+| `wall_<k>.stl` | One straight box per wall, outer frame included. **The last one is the goal pocket's floor**, a Ø34 × 3 mm disk under the goal hole. `parts_report.json` → `wall_names` says which is which |
 | `aruco/aruco_<corner>.obj` + `.png` | One textured sticker per corner marker (see below) |
 | `parts_report.json` | Bounding boxes, goal and start for `sim.yaml`, handle, ArUco poses, and the check results |
 
@@ -77,9 +77,9 @@ colcon build
 
 ### Why the goal is a hole plus a disk
 
-The sim splits `base.stl` into convex pieces with CoACD, and CoACD fills a 3 mm pocket back in (it is shallow next to a 416 mm plate), so the ball would roll over the goal. It does keep a through hole open, and it takes every `wall_*.stl` as its exact convex hull. So the base gets a Ø30 through hole and the floor disk closes it 3 mm down. Checked on L1 with the sim's own converter: the collision floor is at −3 mm across the hole out to a radius of 12–13 mm (CoACD rounds the hole slightly smaller than 15 mm), which is enough for the 7 mm sim ball to sit in it.
+The sim splits `base.stl` into convex pieces with CoACD, and CoACD fills a 3 mm pocket back in (it is shallow next to a 416 mm plate), so the ball would roll over the goal. It does keep a through hole open, and it takes every `wall_*.stl` as its exact convex hull. So the base gets a Ø34 through hole and the floor disk closes it 3 mm down. Checked on L1 with the sim's own converter: the collision floor is at −3 mm across the hole out to a radius of about 15 mm (CoACD rounds the hole slightly smaller than 17 mm), so the Ø25 ball rests on the floor disk with about 5 mm to spare from the hole's edge.
 
-The start is a 0.6 mm engraved ring, not a pocket: a ball of radius r in a pocket of depth d needs a tilt of acos((r − d)/r) to climb out, so even a 1.5 mm pocket would hold a Ø20 ball until 32°, far beyond the board's ±5°. The ring is filled in the collision geometry (too shallow for CoACD), so it is visual only.
+The start is a 0.6 mm engraved ring, not a pocket: a ball of radius r in a pocket of depth d needs a tilt of acos((r − d)/r) to climb out, so even a 1.5 mm pocket would hold the Ø25 ball until 28°, far beyond the board's ±5°. The ring is filled in the collision geometry (too shallow for CoACD), so it is visual only.
 
 ### ArUco markers in the sim
 
@@ -96,7 +96,16 @@ Checked by rendering the L1 board from above in MuJoCo: OpenCV 5's `ArucoDetecto
 
 ## Print (`levels/<L>/print/`)
 
-Frame: origin at the plate's bottom-left corner (top view), base bottom at z = 0, units mm. `maze_<L>_onepiece.step/.stl` is the whole 350×416 board; the four `tile_*` pieces (largest 200×238) and `splice_strip_*` are for printers smaller than that, joined with 1.75 mm filament dowels. The print has the goal pocket, the start ring, finger-pad recesses on the tab, and 0.4 mm recesses for the stickers.
+Frame: origin at the plate's bottom-left corner (top view), base bottom at z = 0, units mm. `maze_<L>_onepiece.step/.stl` is the whole 350×416 board; the four `tile_*` pieces (largest 200×238) and `splice_strip_*` are for printers smaller than that, joined with 1.75 mm filament dowels. The print has the goal pocket, the start ring, finger recesses on the tab, and 0.4 mm recesses for the stickers.
+
+### Gripper fit (Robotiq Hand-E, V-groove fingertips)
+
+The tab is 12 mm thick, with a 1 mm recess top and bottom for each fingertip: 23 mm wide, 42 mm long, open at the tab tip (`pad_x`, `pad_y`, `pad_depth` in `maze_params.py`). The fingertip (Robotiq `HAND_E_FINGER_VGROOVE`, 21 mm wide) has one flat 40 mm grip face with a V-groove down its middle, so it has to come in over the tab tip; a lip there would hold it 1 mm off the recess floor, so there isn't one.
+
+Checked with both STEP models on `maze_L1_onepiece.step`, the fingers' mounting face 2 mm from the tab tip:
+- The fingers touch the recess floor along all 38 mm on the tab (both lands of the V-groove, ~230 mm² per finger), with 1.0 mm to each side wall and 4 mm to the inner end. The grip faces are 10 mm apart (Hand-E stroke 0–50 mm).
+- The Hand-E housing stays 1.9 mm clear of the board.
+- Only the recess's inner end and side walls locate the fingers; pulling the board out along −x is held by friction alone.
 
 ## ArUco stickers (`aruco/`)
 

@@ -103,7 +103,7 @@ walls:
   data: [100, 100, 100, ..., 100, 0, 0, ...]   # 3600 values, row 0 (bottom edge) first
 holes: []
 start: {x: -0.12, y: 0.12, z: 0.0}
-goal: {x: 0.12, y: -0.072, radius: 0.015}
+goal: {x: 0.12, y: -0.072, radius: 0.017}
 ```
 
 ---

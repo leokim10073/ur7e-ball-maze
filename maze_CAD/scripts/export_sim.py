@@ -47,8 +47,9 @@ from aruco import write_sim_quads  # noqa: E402
 from levels import LEVELS  # noqa: E402
 from maze_params import ARUCO, P, cell_center, sticker_size, tag_pads, wall_rects_named  # noqa: E402
 
-BALL_RADIUS = 7.0         # mm, sim.yaml ball.radius
-MIN_CORRIDOR = 18.0       # mm, required gap between walls (> 2 * BALL_RADIUS, with margin)
+BALL_RADIUS = P["ball_d"] / 2              # mm, sim.yaml ball.radius
+MIN_CORRIDOR = 2 * (BALL_RADIUS + 3.0)       # mm, required gap between walls: the planner keeps the
+                                             # ball center ball_radius + wall_margin (3 mm) from each wall
 EXTENT_RANGE = (200.0, 1000.0)
 HULL_TOL = 0.01
 CIRCLE_SEGMENTS = 48      # per circle; the goal pocket edge is within 0.03 mm of round
