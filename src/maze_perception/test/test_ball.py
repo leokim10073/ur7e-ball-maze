@@ -265,6 +265,40 @@ def test_marble_under_jpeg(cfg, color, tol):
 def test_ball_resolution(cfg):
     from maze_perception.ball import BALL_PX, ball_resolution
 
-    assert ball_resolution(cfg.ball, cfg.rectified) == cfg.rectified  # the 14 mm sim ball: full 2 px/mm
+    small = ball_resolution(replace(cfg.ball, radius=0.007), cfg.rectified)
+    assert small == cfg.rectified  # a 14 mm ball: the full 2 px/mm
     marble = ball_resolution(replace(cfg.ball, radius=MARBLE), cfg.rectified)
     assert marble.px_per_m * MARBLE == pytest.approx(BALL_PX) and marble.x_range == cfg.rectified.x_range
+
+
+def test_shadow_offset():
+    # a floor point shows shifted toward the camera's nadir by radius / height of its distance
+    from maze_perception.ball import shadow_offset
+
+    dc, dr = shadow_offset(0.1, -0.05, (0.0, 0.0, 1.0), MARBLE, cfg_rect := load_perception_config(
+        PKG / "config" / "perception.yaml").rectified)
+    assert dc == pytest.approx(-0.1 * MARBLE * cfg_rect.px_per_m)  # toward -x: column down
+    assert dr == pytest.approx(-0.05 * MARBLE * cfg_rect.px_per_m)  # toward +y: row up
+    assert shadow_offset(0.0, 0.0, (0.0, 0.0, 1.0), MARBLE, cfg_rect) == (0.0, 0.0)
+
+
+def test_shadow_beside_the_ball_does_not_pull_it(cfg):
+    # a floor-level shadow under the ball, shown shifted toward the nadir as the camera sees it;
+    # with the nadir known it is left out, and the shadow (a darker floor) is floor anyway
+    from maze_perception.ball import shadow_offset
+
+    big = replace(cfg, ball=replace(cfg.ball, radius=MARBLE))
+    ball, nadir = (-0.11, 0.11), (0.05, -0.02, 1.0)
+    img = scene(big, ball).astype(float)
+    dc, dr = shadow_offset(*ball, nadir, MARBLE, big.rectified)
+    (bc, br), = board_to_rectified(np.array([ball]), big.rectified)
+    yy, xx = np.mgrid[:img.shape[0], :img.shape[1]]
+    rad = MARBLE * big.rectified.px_per_m
+    under = (np.hypot(xx - bc - dc, yy - br - dr) <= rad) & (np.hypot(xx - bc, yy - br) > rad + 0.5)
+    for dark in (0.6, 0.25):  # a soft shadow, and a black one (not floor-like: left out by geometry)
+        shaded = img.copy()
+        shaded[under] *= dark
+        shaded = shaded.astype(np.uint8)
+        b = find_ball(shaded, big.ball, big.rectified, nadir=nadir)
+        assert b is not None and _err_mm(b, ball) < 0.4, dark
+
