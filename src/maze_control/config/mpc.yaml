@@ -31,7 +31,8 @@ maze_mpc_controller:
       q_pos: 2500.0               # (1 / 0.02 m)^2, as the LQR
       q_vel: 100.0                # (1 / 0.1 m/s)^2, on the velocity error to V
       r: 156.0                    # (1 / 0.08 rad)^2, as the LQR
-      r_du: 0.0                   # smoothing of the command; 0 = off (the rate limit is a hard constraint)
+      r_du: 100000.0              # smoothing of the command; 0 = off (the rate limit is a hard constraint).
+                                  # 0 drives the tilt bang-bang between the rate limits (#10)
       # Terminal cost: with lqr (and input_ref steady, so P is the cost-to-go of the
       # tracking error) the unconstrained CFTOC is the LQR at any horizon. Offline
       # (scripts/compare, N = 30) it changed nothing: 100 % on line / L / U either way.
