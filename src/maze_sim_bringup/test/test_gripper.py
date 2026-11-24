@@ -1,4 +1,4 @@
-"""/toggle_gripper opens and closes the 2F-85 as in lab 5; the closed gripper holds the board while the arm
+"""/toggle_gripper opens and closes the Hand-E as in lab 5; the closed gripper holds the board while the arm
 moves; opening drops it, /sim/reset regrasps it."""
 
 import unittest

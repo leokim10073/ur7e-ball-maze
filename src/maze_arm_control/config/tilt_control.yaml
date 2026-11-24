@@ -25,7 +25,7 @@ tilt_control:
     # Board relative to tool0, as maze_arm.kinematics.fk_board: sim.yaml board.grasp_offset and the
     # handle center from maze_CAD/levels/L1/sim/parts_report.json (checked by test/test_config.py).
     mount:
-      grasp_xyz: [0.0, 0.0, 0.15]
+      grasp_xyz: [0.0, 0.0, 0.137]
       grasp_rpy: [3.141593, -1.570796, 0.0]
       handle_center: [-0.175, 0.0, 0.0]
 

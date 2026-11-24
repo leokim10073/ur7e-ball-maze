@@ -53,6 +53,17 @@ VIRTUAL_ENV=~/.venvs/maze-cad uv pip install cadquery trimesh shapely mapbox_ear
 
 Use `distrobox enter`, not `podman exec`: files written through `podman exec` belong to a container uid, and your user cannot delete them afterwards.
 
+## Gripper (`gripper/robotiq_hande/`)
+
+Robotiq's own STEP files for the lab gripper, a Hand-E with V-groove fingertips, as downloaded from Robotiq:
+
+| File | Robotiq name |
+|---|---|
+| `ROBOTIQ_HAND-E_Base.step` | `ROBOTIQ_HAND-E_DEFEATURE_NO_FINGERTIPS.STEP`: housing and finger carriers, no coupling |
+| `HAND_E_FINGER_VGROOVE.step` | `D-017-DOIGT_VGROOVE.STEP`: one fingertip |
+
+`scripts/export_hande.py` turns them into the sim's visual meshes (`src/maze_sim_description/meshes/hande/`); it needs OCP (`pip install cadquery-ocp`). The sim's collision shapes are boxes in `scene_builder.py`. The tab's finger recesses in the print were checked against these files (#53).
+
 ## Sim parts (`levels/<L>/sim/`)
 
 Frame: origin at the center of the 300×300 plate, **z = 0 on the maze floor** (the plate's top face), z up, handle on the −x edge, units mm. This is the frame the sim's placeholder board uses; the sim places the ball at z = ball radius.
