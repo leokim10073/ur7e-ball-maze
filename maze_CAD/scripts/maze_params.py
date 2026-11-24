@@ -27,8 +27,11 @@ P = dict(
     handle_h=12.0,   # grip tab thickness (fingers clamp its top & bottom faces)
     tab_embed=9.0,   # printed tab runs this far under the outer wall
     tab_fillet=4.0,  # plan-view radius of the tab's two outer corners
-    pad_x=42.0, pad_y=23.0, pad_depth=1.0,  # finger recesses (print only), open at the tab tip: for the Hand-E
-                                            # V-groove fingertip (21 wide, flat 40 mm grip face, ~38 mm on the tab)
+    # finger recesses (print only), open at the tab tip, for the Hand-E V-groove fingertip (21 wide,
+    # one flat 40 mm grip face). 22 wide: 0.5 mm per side for print tolerance. 38 long: pushed in until
+    # the fingertip meets the inner end, its mounting face is 2 mm off the tab tip (sim grasp_offset).
+    # The chamfer on the side walls' top edge steers a finger up to ~1.5 mm off center back in.
+    pad_x=38.0, pad_y=22.0, pad_depth=1.5, pad_chamfer=1.0,
     tag_marker=40.0,   # ArUco black-square size
     tag_border=5.0,    # white quiet zone on the printed sticker
     tag_pad=58.0,      # ArUco corner pad size, extends outward from the top/bottom edges
