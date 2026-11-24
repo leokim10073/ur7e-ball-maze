@@ -82,6 +82,64 @@ def test_unconstrained_long_horizon_matches_lqr(lqr_params):
     assert plan.U[:, 0] == pytest.approx(u_lqr, rel=0.02)
 
 
+def lqr_u(lqr_params, x):
+    """The LQR's command for per-axis states x (3 x 2, rows p, v, theta)."""
+    m, w = lqr_params['model'], lqr_params['lqr']
+    K, _, _ = design_gain(m['c'], m['tau'], 1.0 / lqr_params['rate_hz'], w['q_pos'],
+                          w['q_vel'], w['q_tilt'], w['r'], q_int=0.0, g=m['g'])
+    return -K[:3] @ x
+
+
+def test_terminal_cost_short_horizon_matches_lqr(lqr_params):
+    """With the LQR's Riccati P as terminal cost, the unconstrained CFTOC is
+    the LQR at any horizon; without it a 5-step horizon is not."""
+    ex, ey = 5e-4, -5e-4
+    u_lqr = lqr_u(lqr_params, np.array([[ex, ey], [0.0, 0.0], [0.0, 0.0]]))
+    with_p = make_cftoc(lqr_params, horizon=5, terminal_cost='lqr')
+    plan = with_p.solve(state(px=ex, py=ey), ref_const(5), np.zeros(2))
+    assert plan.ok
+    assert plan.U[:, 0] == pytest.approx(u_lqr, rel=0.01)
+    without = make_cftoc(lqr_params, horizon=5)
+    plan = without.solve(state(px=ex, py=ey), ref_const(5), np.zeros(2))
+    assert plan.ok
+    assert plan.U[:, 0] != pytest.approx(u_lqr, rel=0.1)
+
+
+def test_terminal_cost_holds_speed_on_moving_reference(lqr_params):
+    """On a reference moving at constant speed, the input and terminal costs are
+    taken from the tilt that holds that speed: a ball already on the reference
+    keeps that tilt instead of being pulled level."""
+    m = lqr_params['model']
+    N, dt, V = 10, 1.0 / lqr_params['rate_hz'], 0.15
+    th = m['c'] * V / (5.0 / 7.0 * m['g'])
+    mpc = make_cftoc(lqr_params, horizon=N, terminal_cost='lqr', input_ref='steady')
+    t = dt * np.arange(1, N + 1)
+    ref = HorizonRef(R=np.vstack([V * t, np.zeros(N)]),
+                     V=np.vstack([np.full(N, V), np.zeros(N)]),
+                     lo=np.full((2, N), -INF), hi=np.full((2, N), INF))
+    plan = mpc.solve(np.array([0.0, V, th, 0.0, 0.0, 0.0]), ref, np.array([th, 0.0]))
+    assert plan.ok
+    assert np.abs(plan.U[0] - th).max() < 0.01 * th
+    assert np.abs(plan.U[1]).max() < 1e-6
+
+
+@pytest.mark.parametrize('key, value', [('terminal_cost', 'dare'), ('input_ref', 'lqr')])
+def test_cost_options_reject_unknown_kind(lqr_params, key, value):
+    with pytest.raises(ValueError):
+        make_cftoc(lqr_params, horizon=5, **{key: value})
+
+
+def test_terminal_cost_from_params(mpc_params):
+    p = copy.deepcopy(mpc_params)
+    assert MPCController.from_params(p['model'], p['mpc'], p['limits'],
+                                     p['rate_hz']).cftoc.terminal_cost == \
+        p['mpc'].get('terminal_cost', 'none')
+    p['mpc']['terminal_cost'], p['mpc']['input_ref'] = 'lqr', 'steady'
+    law = MPCController.from_params(p['model'], p['mpc'], p['limits'], p['rate_hz'])
+    assert (law.cftoc.terminal_cost, law.cftoc.input_ref) == ('lqr', 'steady')
+    assert law.cftoc.P.shape == (6, 6)
+
+
 def test_corridor_bounds_the_prediction(cftoc):
     """The reference lies past a wall at x = 0.03: free, the plan goes to it;
     with the corridor, the predicted ball stops at the wall."""

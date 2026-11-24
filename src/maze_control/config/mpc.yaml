@@ -24,7 +24,7 @@ maze_mpc_controller:
       delay: 0.05                 # camera + filter + arm dead time [s]; 0 turns the predictor off
 
     # CFTOC (solved every period, k = 0 .. horizon-1):
-    #   q_pos |p - R|^2 + q_vel |v - V|^2 + r u^2 + r_du (u - u_prev)^2 + rho_lin S + rho_quad S^2
+    #   q_pos |p - R|^2 + q_vel |v - V|^2 + r (u - u_ss)^2 + r_du (u - u_prev)^2 + rho_lin S + rho_quad S^2
     # R, V: reference along the path at v_ref; S: how far the predicted ball is outside its corridor.
     mpc:
       horizon: 30                 # N steps (0.5 s at 60 Hz)
@@ -32,6 +32,11 @@ maze_mpc_controller:
       q_vel: 100.0                # (1 / 0.1 m/s)^2, on the velocity error to V
       r: 156.0                    # (1 / 0.08 rad)^2, as the LQR
       r_du: 0.0                   # smoothing of the command; 0 = off (the rate limit is a hard constraint)
+      # Terminal cost: with lqr (and input_ref steady, so P is the cost-to-go of the
+      # tracking error) the unconstrained CFTOC is the LQR at any horizon. Offline
+      # (scripts/compare, N = 30) it changed nothing: 100 % on line / L / U either way.
+      input_ref: steady           # u_ss: zero, or steady = the tilt that holds the reference speed V
+      terminal_cost: lqr          # none, or lqr = (x_N - x_ref)' P (x_N - x_ref), P the LQR's Riccati solution
       rho_lin: 10000.0            # corridor slack, linear (exact penalty) [1/m]
       rho_quad: 10000.0           # corridor slack, quadratic; 1e6 made the QP ill-conditioned (22 ms median)
       # Speeds from scripts/compare/sweep_corner_speed.py (20 randomized runs per path, 5 mm corridors, dead time 40-70 ms):

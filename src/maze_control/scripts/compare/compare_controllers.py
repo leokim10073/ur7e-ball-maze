@@ -2,6 +2,7 @@
 """PID vs LQR vs MPC in the offline sim (no ROS; MPC needs casadi).
 
     python3 scripts/compare/compare_controllers.py [--runs 50] [--jobs 4] [--out-dir DIR]
+        [--ctrls PID,LQR,MPC,...]
 
 Writes controller_trajectories.png and controller_comparison.png to
 results/compare/ at the repo root (git-ignored) and prints a summary table. Corridors are 5 mm either side of the path (ball centre, wall
@@ -12,6 +13,15 @@ keeps its prediction inside them.
 corridor box (into the planner's wall margin). A run succeeds when the ball
 reaches the goal (within goal_tol) inside the scenario's time limit and never
 left the corridor.
+
+MPC variants (all mpc.yaml otherwise; corridors as above):
+  MPC           mpc.yaml as is
+  MPC 0.1       constant 0.1 m/s reference (no corner slowing)
+  MPC no P      input_ref zero, no terminal cost (mpc.yaml before the terminal cost)
+  MPC u_ss      input cost r |u - u_ss|^2, u_ss the tilt that holds the reference speed
+  MPC u_ss+P    MPC u_ss with the LQR's Riccati P as terminal cost
+  MPC LQR cost  the LQR's cost: every horizon step tracks the LQR's target (the
+                tracker's lookahead point) with zero reference velocity, + P
 """
 
 import argparse
@@ -35,10 +45,11 @@ from maze_control.lqr.controller import LqrPathController  # noqa: E402
 from maze_control.mpc.controller import MpcPathController  # noqa: E402
 from maze_control.pid.controller import PidPathController  # noqa: E402
 
-# categorical slots 1-3 of the dataviz reference palette, fixed per controller
-COLORS = {'PID': '#2a78d6', 'LQR': '#eb6834', 'MPC 0.1': '#eda100', 'MPC': '#1baf7a'}
+# categorical slots of the dataviz reference palette, fixed per controller
+COLORS = {'PID': '#2a78d6', 'LQR': '#eb6834', 'MPC': '#1baf7a', 'MPC 0.1': '#eda100',
+          'MPC no P': '#008300', 'MPC u_ss': '#e87ba4', 'MPC u_ss+P': '#6250d6', 'MPC LQR cost': '#e34948'}
 INK, INK2, GRID, PATH, CORR = '#0b0b0b', '#52514e', '#e4e3df', '#9a9893', '#ecebe7'
-CTRLS = ('PID', 'LQR', 'MPC 0.1', 'MPC')
+CTRLS = ['PID', 'LQR', 'MPC 0.1', 'MPC']     # --ctrls replaces it (in every worker)
 CONST_V_REF = 0.1     # 'MPC 0.1': mpc.yaml with a constant reference speed (no corner slowing)
 PATHS = ('line', 'L', 'U')
 HALF_WIDTH = 0.005
@@ -50,16 +61,34 @@ def params():
             'MPC': load_params('mpc.yaml')}
 
 
+class LqrCostMpc(MpcPathController):
+    """The LQR's cost in the MPC: every step of the horizon tracks the LQR's
+    target (the tracker's lookahead point, self.target) at zero reference
+    velocity; the corridors still follow the path."""
+
+    def _law_step(self, dt):
+        ref = self.horizon_ref()
+        ref.R[:] = np.asarray(self.target, float).reshape(2, 1)
+        ref.V[:] = 0.0
+        return self.law.step(ref, self.pos, self.vel, dt)
+
+
+MPC_OVERRIDES = {'MPC': {}, 'MPC 0.1': {'v_ref': CONST_V_REF, 'v_turn': CONST_V_REF},
+                 'MPC no P': {'input_ref': 'zero', 'terminal_cost': 'none'},
+                 'MPC u_ss': {'input_ref': 'steady', 'terminal_cost': 'none'},
+                 'MPC u_ss+P': {'input_ref': 'steady', 'terminal_cost': 'lqr'},
+                 'MPC LQR cost': {'input_ref': 'zero', 'terminal_cost': 'lqr'}}
+
+
 def make(name, P, path, half_width):
     if name == 'PID':
         return PidPathController.from_params(P['PID'])
     if name == 'LQR':
         return LqrPathController.from_params(P['LQR'])
-    p = P['MPC']
-    if name == 'MPC 0.1':
-        p = copy.deepcopy(p)
-        p['mpc']['v_ref'] = p['mpc']['v_turn'] = CONST_V_REF
-    ctrl = MpcPathController.from_params(p)
+    p = copy.deepcopy(P['MPC'])
+    p['mpc'].update(MPC_OVERRIDES[name])
+    cls = LqrCostMpc if name == 'MPC LQR cost' else MpcPathController
+    ctrl = cls.from_params(p)
     arc, corr, pc = corridors_for(path, half_width)
     ctrl.on_route(path, arc, corr, pc, plan_id=1)
     return ctrl
@@ -137,7 +166,10 @@ def plot_trajectories(nominal, out):
         ax.set_xlabel('x [cm]'), ax.set_ylabel('y [cm]')
         sub = '\n'.join(f"{n}: {nominal[(n, scen)]['t_reach']:.2f} s, "
                          f"{nominal[(n, scen)]['max_viol'] * 1000:.1f} mm outside" for n in CTRLS)
-        ax.set_title(f'{scen} path (grey: ±5 mm corridor)\n{sub}', fontsize=8.5)
+        # more than four controllers: the per-controller lines crowd the axes out
+        # (the same numbers are printed)
+        ax.set_title(f'{scen} path (grey: ±5 mm corridor)' + (f'\n{sub}' if len(CTRLS) <= 4 else ''),
+                     fontsize=8.5)
         if col == 0:
             ax.legend(handles=lines, loc='lower right', frameon=False)
         # inset at the corner(s): where the controllers differ
@@ -164,7 +196,8 @@ def plot_trajectories(nominal, out):
         ax.axhline(LEAVE_TOL * 1000, color=INK2, lw=0.8, ls=':')
         ax.set_ylabel('outside corridor [mm]'), ax.grid(color=GRID, lw=0.6)
         if col == 0:
-            ax.legend(loc='upper left', bbox_to_anchor=(0.0, 1.22), frameon=False, ncol=4)
+            ax.legend(loc='upper left', bbox_to_anchor=(0.0, 1.22 if len(CTRLS) <= 4 else 1.32),
+                      frameon=False, ncol=min(len(CTRLS), 4), fontsize=8)
             ax.text(0.01, LEAVE_TOL * 1000, ' 1 mm: "left the corridor"', va='bottom',
                     color=INK2, fontsize=7.5, transform=ax.get_yaxis_transform())
 
@@ -176,7 +209,7 @@ def plot_trajectories(nominal, out):
         ax.axhline(np.degrees(0.08), color=INK2, lw=0.8, ls=':')
         ax.set_ylabel('|tilt| (larger axis) [deg]'), ax.set_xlabel('time [s]')
         ax.grid(color=GRID, lw=0.6)
-    fig.suptitle(f'PID vs LQR vs MPC 0.1 (constant {CONST_V_REF} m/s) vs MPC (corner slowing), offline sim, nominal plant '
+    fig.suptitle(' vs '.join(CTRLS) + ', offline sim, nominal plant '
                  '(τ = 80 ms, delay = 50 ms, c = 0.3 /s, no noise)',
                  x=0.01, ha='left', fontsize=11, color=INK)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
@@ -185,14 +218,16 @@ def plot_trajectories(nominal, out):
 
 def bar_group(ax, values, ylabel, fmt, title, ylim=None):
     x = np.arange(len(PATHS))
-    w = 0.2
+    w = 0.8 / len(CTRLS)
     for i, name in enumerate(CTRLS):
         vals = [values[(name, s)] for s in PATHS]
-        bars = ax.bar(x + (i - 1.5) * w, vals, w - 0.02, color=COLORS[name], label=name)
+        bars = ax.bar(x + (i - (len(CTRLS) - 1) / 2) * w, vals, w - 0.02, color=COLORS[name],
+                      label=name)
         for b, v in zip(bars, vals):
             ax.text(b.get_x() + b.get_width() / 2, b.get_height() if np.isfinite(v) else 0,
                     fmt.format(v) if np.isfinite(v) else 'none', ha='center', va='bottom',
-                    fontsize=7.5, color=INK2, rotation=0 if np.isfinite(v) else 90)
+                    fontsize=6.5 if len(CTRLS) > 4 else 7.5, color=INK2,
+                    rotation=0 if np.isfinite(v) and len(CTRLS) <= 4 else 90)
     ax.set_xticks(x, [f'{s} path' for s in PATHS])
     ax.set_ylabel(ylabel), ax.set_title(title, fontsize=9.5)
     ax.grid(axis='y', color=GRID, lw=0.6), ax.set_axisbelow(True)
@@ -216,8 +251,8 @@ def plot_comparison(mc, width_sweep, delay_sweep, n, out, solve_ms):
     bar_group(axes[0, 0], succ, 'success rate [%]', '{:.0f}',
               f'Success rate, {n} randomized runs per path:\nreached goal and never > 1 mm outside '
               f'(goal reached in {min(reach.values()):.0f}% of runs)',
-              ylim=(0, 112))
-    axes[0, 0].legend(loc='upper left', frameon=False, ncol=4, fontsize=8)
+              ylim=(0, 112 if len(CTRLS) <= 4 else 135))
+    axes[0, 0].legend(loc='upper left', frameon=False, ncol=3, fontsize=7.5)
     bar_group(axes[0, 1], t_mean, 'time to goal [s]', '{:.1f}',
               'Mean time to goal (successful runs only; none = no successful run)')
     bar_group(axes[0, 2], viol, 'max outside corridor [mm]', '{:.1f}',
@@ -280,7 +315,14 @@ def main():
     ap.add_argument('--runs', type=int, default=50)
     ap.add_argument('--out-dir', default=os.path.join(PKG, '..', '..', 'results', 'compare'))
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument('--ctrls', default=','.join(CTRLS),
+                    help=f'comma-separated, from {", ".join(COLORS)}')
     a = ap.parse_args()
+    ctrls = a.ctrls.split(',')
+    unknown = [c for c in ctrls if c not in COLORS]
+    if unknown:
+        ap.error(f'unknown controllers {unknown}')
+    CTRLS[:] = ctrls
     style()
     os.makedirs(a.out_dir, exist_ok=True)
 
@@ -306,11 +348,11 @@ def main():
         os.path.join(a.out_dir, 'controller_comparison.png'), solve_ms)
 
     print('\nnominal plant, ±5 mm corridors')
-    print(f"{'path':5} {'ctrl':8} {'t_reach':>8} {'max_out':>8} {'%t_out':>7} {'max_xt':>7} {'tilt_rms':>8}")
+    print(f"{'path':5} {'ctrl':12} {'t_reach':>8} {'max_out':>8} {'%t_out':>7} {'max_xt':>7} {'tilt_rms':>8}")
     for s in PATHS:
         for c in CTRLS:
             r = nominal[(c, s)]
-            print(f"{s:5} {c:8} {r['t_reach']:7.2f}s {r['max_viol'] * 1000:6.1f}mm "
+            print(f"{s:5} {c:12} {r['t_reach']:7.2f}s {r['max_viol'] * 1000:6.1f}mm "
                   f"{100 * r['frac_out']:6.1f}% {r['max_xt'] * 1000:5.1f}mm "
                   f"{np.degrees(r['tilt_rms']):6.2f}deg")
     print(f'\nrandomized, {a.runs} runs per path: reached % / success % / mean t [s] / median max-out [mm]')

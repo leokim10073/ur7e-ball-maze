@@ -8,8 +8,14 @@ u = [tilt_x, tilt_y].
 CFTOC solved every control period (k = 0 .. N-1, p = (px, py), v = (vx, vy)):
 
     min  sum_k  q_pos |p_{k+1} - R_k|^2 + q_vel |v_{k+1} - V_k|^2
-              + r |u_k|^2 + r_du |u_k - u_{k-1}|^2
+              + r |u_k - u_ss,k|^2 + r_du |u_k - u_{k-1}|^2
               + rho_lin sum(S_k) + rho_quad |S_k|^2
+
+u_ss,k = 0 (input_ref 'zero') or the tilt that holds speed V_k against the
+rolling loss (input_ref 'steady'). With terminal_cost 'lqr' the last state
+term (k = N-1) is instead (x_N - x_ref)' P (x_N - x_ref): P is the LQR's
+Riccati solution for Q = diag(q_pos, q_vel, 0) and r, x_ref = [R, V, u_ss]
+per axis, so without active constraints the CFTOC is the LQR at any N.
     s.t. X_0 = x0,  X_{k+1} = Ad X_k + Bd U_k
          |U_k| <= max_tilt,  |U_k - U_{k-1}| <= max_rate dt   (U_{-1} = u_prev)
          lo_k - S_k <= p_{k+1} <= hi_k + S_k,  S_k >= 0
@@ -34,7 +40,7 @@ import time
 import casadi as ca
 import numpy as np
 
-from ..lqr.lqr_law import G, ball_model, c2d
+from ..lqr.lqr_law import G, ball_model, c2d, dlqr
 
 # Infinite corridor bounds are replaced by this (m): far outside any board.
 BIG = 1.0e3
@@ -48,6 +54,9 @@ LIMIT_TOL = 1.0e-4
 # plan whose dynamics residual |X_0 - x0|, |X_{k+1} - Ad X_k - Bd U_k| exceeds
 # this is taken as unconverged (a max_iter exit). Converged plans: ~1e-5.
 RESID_TOL = 5.0e-4
+
+TERMINAL_COSTS = ('none', 'lqr')
+INPUT_REFS = ('zero', 'steady')
 
 # rows of p and v in the stacked state
 P_ROWS, V_ROWS = [0, 3], [1, 4]
@@ -76,7 +85,14 @@ class CFTOC:
     """The finite-time optimal control problem, built once, solved per step."""
 
     def __init__(self, Ad, Bd, dt, horizon, q_pos, q_vel, r, r_du, rho_lin,
-                 rho_quad, max_tilt, max_rate, osqp_opts=None):
+                 rho_quad, max_tilt, max_rate, osqp_opts=None, terminal_cost='none',
+                 input_ref='zero'):
+        if terminal_cost not in TERMINAL_COSTS:
+            raise ValueError(f'mpc.terminal_cost must be one of {TERMINAL_COSTS}, '
+                             f'got {terminal_cost!r}')
+        if input_ref not in INPUT_REFS:
+            raise ValueError(f'mpc.input_ref must be one of {INPUT_REFS}, got {input_ref!r}')
+        self.terminal_cost, self.input_ref = terminal_cost, input_ref
         self.dt = float(dt)
         self.N = N = int(horizon)
         self.max_tilt, self.max_rate = float(max_tilt), float(max_rate)
@@ -88,6 +104,18 @@ class CFTOC:
         x0, R, V = opti.parameter(6), opti.parameter(2, N), opti.parameter(2, N)
         lo, hi, u_prev = opti.parameter(2, N), opti.parameter(2, N), opti.parameter(2)
 
+        # Terminal cost 'lqr': the state at N is weighted by the LQR's Riccati P
+        # (same Q = diag(q_pos, q_vel, 0) and r) instead of the stage weights, so
+        # the unconstrained problem is the infinite-horizon LQR at any N.
+        Ad1, Bd1 = np.asarray(Ad, float), np.asarray(Bd, float)
+        # Tilt that holds a reference speed V against rolling loss (constant
+        # theta = u): v = Ad[1,1] v + (Ad[1,2] + Bd[1]) theta, so theta = th_gain V.
+        th_gain = (1.0 - Ad1[1, 1]) / (Ad1[1, 2] + Bd1[1, 0])
+        self.P = None
+        if terminal_cost == 'lqr':
+            _, P = dlqr(Ad1, Bd1, np.diag([q_pos, q_vel, 0.0]), np.array([[r]]))
+            self.P = np.kron(np.eye(2), P)
+
         du_max = self.max_rate * self.dt
         J = 0
         opti.subject_to(X[:, 0] == x0)
@@ -95,8 +123,15 @@ class CFTOC:
             opti.subject_to(X[:, k + 1] == Ad2 @ X[:, k] + Bd2 @ U[:, k])
             p, v = X[P_ROWS, k + 1], X[V_ROWS, k + 1]
             du = U[:, k] - (u_prev if k == 0 else U[:, k - 1])
-            J += (q_pos * ca.sumsqr(p - R[:, k]) + q_vel * ca.sumsqr(v - V[:, k])
-                  + r * ca.sumsqr(U[:, k]) + r_du * ca.sumsqr(du)
+            if self.P is not None and k == N - 1:
+                th_ref = th_gain * V[:, k]
+                e = X[:, N] - ca.vertcat(R[0, k], V[0, k], th_ref[0],
+                                         R[1, k], V[1, k], th_ref[1])
+                J += ca.bilin(ca.DM(self.P), e, e)
+            else:
+                J += q_pos * ca.sumsqr(p - R[:, k]) + q_vel * ca.sumsqr(v - V[:, k])
+            u_ref = th_gain * V[:, k] if input_ref == 'steady' else 0.0
+            J += (r * ca.sumsqr(U[:, k] - u_ref) + r_du * ca.sumsqr(du)
                   + rho_lin * ca.sum1(S[:, k]) + rho_quad * ca.sumsqr(S[:, k]))
             opti.subject_to(opti.bounded(-self.max_tilt, U[:, k], self.max_tilt))
             opti.subject_to(opti.bounded(-du_max, du, du_max))
@@ -208,7 +243,9 @@ class MPCController:
         cftoc = CFTOC(Ad, Bd, dt, mpc['horizon'], mpc['q_pos'], mpc['q_vel'],
                       mpc['r'], mpc['r_du'], mpc['rho_lin'], mpc['rho_quad'],
                       limits['max_tilt'], limits['max_rate'],
-                      osqp_opts=dict(mpc.get('osqp', {})))
+                      osqp_opts=dict(mpc.get('osqp', {})),
+                      terminal_cost=mpc.get('terminal_cost', 'none'),
+                      input_ref=mpc.get('input_ref', 'zero'))
         return cls(cftoc, Ad, Bd, model['delay'], mpc['solve_budget'],
                    mpc['max_fallback'])
 
