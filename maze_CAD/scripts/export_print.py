@@ -50,11 +50,9 @@ def build_maze(L):
 
     # finger recesses on the top and bottom faces of the tab, open at the tab tip: the Hand-E
     # fingertip's grip face is one flat 40 mm strip that comes in over the tip, so a lip there
-    # would hold it 1 mm off the recess floor. The side walls and the inner end locate the finger.
-    px, py, pd = P["pad_x"], P["pad_y"], P["pad_depth"]
-    x0 = -hl - 1.0  # starts 1 mm past the tip so the cut leaves no sliver
-    body = body.cut(box(x0, B / 2 - py / 2, ht - pd, px + 1.0, py, pd + 0.01))
-    body = body.cut(box(x0, B / 2 - py / 2, -0.01, px + 1.0, py, pd + 0.01))
+    # would hold it off the recess floor. The side walls (with a 45 deg lead-in chamfer) center
+    # the finger; the inner end is the stop the board is pushed against before the gripper closes.
+    body = body.cut(finger_recess(ht, -1)).cut(finger_recess(0.0, +1))
 
     # ArUco corner pads: top surface flush with maze floor (z = base_t)
     tsz = sticker_size() + 0.5   # +0.5 clearance for the sticker
@@ -82,6 +80,27 @@ def build_maze(L):
             .circle(r_out).circle(r_in).extrude(ring_d + 0.01))
     body = body.cut(ring)
     return body
+
+
+def finger_recess(z_face, into):
+    """cutter for one finger recess in the tab face at z_face; into = -1 cuts down (top face),
+    +1 cuts up (bottom face). Cross-section (y, z): floor pad_y wide, side walls rising to a
+    pad_chamfer x 45 deg lead-in, extruded along x from 1 mm past the tab tip to pad_x in."""
+    hl, B = P["handle_l"], P["base"]
+    w, d, c = P["pad_y"] / 2, P["pad_depth"], P["pad_chamfer"]
+    cy, e = B / 2, 0.01  # e: overshoot past the face so the cut leaves no skin
+    zf = lambda dz: z_face + into * dz
+    prof = [(cy - w - c - e, zf(-e)), (cy - w - c, zf(0)), (cy - w, zf(c)), (cy - w, zf(d)),
+            (cy + w, zf(d)), (cy + w, zf(c)), (cy + w + c, zf(0)), (cy + w + c + e, zf(-e))]
+    x0 = -hl - 1.0
+    return cq.Workplane("YZ", origin=(x0, 0, 0)).polyline(prof).close().extrude(P["pad_x"] + 1.0)
+
+
+def tab_coupon(body):
+    """the grip tab alone (tip to 2 mm short of the plate edge, full width): a quick print to try
+    the fingers' fit before printing tile A"""
+    hl, hw, B = P["handle_l"], P["handle_w"], P["base"]
+    return body.intersect(box(-hl - 1, B / 2 - hw / 2 - 1, -1, hl - 1, hw + 2, P["handle_h"] + 2))
 
 
 def dowel_holes(body):
@@ -154,6 +173,10 @@ def main():
     cq.exporters.export(maze, f"{out}/maze_{tag}_onepiece.step")
     cq.exporters.export(maze, f"{out}/maze_{tag}_onepiece.stl", tolerance=0.05, angularTolerance=0.1)
     print("one-piece:", bbox_str(maze), "volume cm3 =", round(maze.val().Volume() / 1000, 1))
+
+    coupon = tab_coupon(maze)
+    cq.exporters.export(coupon, f"{out}/maze_{tag}_tab_coupon.stl", tolerance=0.02, angularTolerance=0.1)
+    print("tab coupon:", bbox_str(coupon))
 
     # 2) 4-tile version
     holed = dowel_holes(maze)

@@ -111,12 +111,21 @@ Frame: origin at the plate's bottom-left corner (top view), base bottom at z = 0
 
 ### Gripper fit (Robotiq Hand-E, V-groove fingertips)
 
-The tab is 12 mm thick, with a 1 mm recess top and bottom for each fingertip: 23 mm wide, 42 mm long, open at the tab tip (`pad_x`, `pad_y`, `pad_depth` in `maze_params.py`). The fingertip (Robotiq `HAND_E_FINGER_VGROOVE`, 21 mm wide) has one flat 40 mm grip face with a V-groove down its middle, so it has to come in over the tab tip; a lip there would hold it 1 mm off the recess floor, so there isn't one.
+The tab is 12 mm thick, with a recess top and bottom for each fingertip so that every grasp lands in the same place (`pad_x`, `pad_y`, `pad_depth`, `pad_chamfer` in `maze_params.py`):
 
-Checked with both STEP models on `maze_L1_onepiece.step`, the fingers' mounting face 2 mm from the tab tip:
-- The fingers touch the recess floor along all 38 mm on the tab (both lands of the V-groove, ~230 mm² per finger), with 1.0 mm to each side wall and 4 mm to the inner end. The grip faces are 10 mm apart (Hand-E stroke 0–50 mm).
-- The Hand-E housing stays 1.9 mm clear of the board.
-- Only the recess's inner end and side walls locate the fingers; pulling the board out along −x is held by friction alone.
+- **22 mm wide, 1.5 mm deep, 1 mm × 45° chamfer on the side walls' top edge.** The fingertip (Robotiq `HAND_E_FINGER_VGROOVE`) is 21 mm wide, so there is 0.5 mm per side for print tolerance. A finger up to ~1.5 mm off center still lands inside the chamfer, which steers it back in as the gripper closes.
+- **38 mm long, open at the tab tip.** The fingertip's grip face is one flat 40 mm strip that comes in over the tip, so there can't be a lip there. The inner end is the stop: push the board toward the gripper until the fingertips touch it, then close. Pushed in, the fingers' mounting face is 2 mm off the tab tip, the sim's `grasp_offset`.
+- The grip faces end up 9 mm apart (Hand-E stroke 0–50 mm).
+
+Checked with both STEP models on `maze_L1_onepiece.step`:
+- The fingers touch the recess floor along their length on the tab: both lands of the V-groove, ~227 mm² per finger.
+- They clear the side walls up to 0.5 mm off center, and touch the inner end without overlap.
+- Lowered 0.05 mm below the tab face, a finger 1.4 mm off center is still inside the chamfer; 1.6 mm off center, it lands on the flat face.
+- The Hand-E housing stays 1.9 mm clear of the board when pushed in (2.4 mm with the fingertips 0.5 mm off the inner end).
+
+`maze_<L>_tab_coupon.stl` is the tab alone (48 × 60 × 12 mm). Print it first and try it in the real gripper before printing tile A. If it is too tight or too loose, change `pad_y` and re-export.
+
+Only friction holds the board against being pulled out along −x.
 
 ## ArUco stickers (`aruco/`)
 
