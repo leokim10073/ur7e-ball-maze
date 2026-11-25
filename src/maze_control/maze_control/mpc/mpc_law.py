@@ -15,7 +15,8 @@ u_ss,k = 0 (input_ref 'zero') or the tilt that holds speed V_k against the
 rolling loss (input_ref 'steady'). With terminal_cost 'lqr' the last state
 term (k = N-1) is instead (x_N - x_ref)' P (x_N - x_ref): P is the LQR's
 Riccati solution for Q = diag(q_pos, q_vel, 0) and r, x_ref = [R, V, u_ss]
-per axis, so without active constraints the CFTOC is the LQR at any N.
+per axis, so without active constraints and with r_du = 0 the CFTOC is the LQR
+at any N (P has no r_du term, so with r_du > 0 it is not the cost-to-go).
     s.t. X_0 = x0,  X_{k+1} = Ad X_k + Bd U_k
          |U_k| <= max_tilt,  |U_k - U_{k-1}| <= max_rate dt   (U_{-1} = u_prev)
          lo_k - S_k <= p_{k+1} <= hi_k + S_k,  S_k >= 0
@@ -106,7 +107,8 @@ class CFTOC:
 
         # Terminal cost 'lqr': the state at N is weighted by the LQR's Riccati P
         # (same Q = diag(q_pos, q_vel, 0) and r) instead of the stage weights, so
-        # the unconstrained problem is the infinite-horizon LQR at any N.
+        # the unconstrained problem is the infinite-horizon LQR at any N (only at
+        # r_du = 0: P has no du cost).
         Ad1, Bd1 = np.asarray(Ad, float), np.asarray(Bd, float)
         # Tilt that holds a reference speed V against rolling loss (constant
         # theta = u): v = Ad[1,1] v + (Ad[1,2] + Bd[1]) theta, so theta = th_gain V.
